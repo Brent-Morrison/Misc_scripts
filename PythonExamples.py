@@ -117,7 +117,7 @@ apps_data = [['id',
   '29',
   '1']]
 
-   apps_data_NEW = ['id_NEW',
+apps_data_NEW = ['id_NEW',
   'track_name_NEW',
   'size_bytes_NEW',
   'currency_NEW',
