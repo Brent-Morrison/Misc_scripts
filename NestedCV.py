@@ -1,5 +1,4 @@
 # Import required libraries
-
 import numpy as np
 import pandas as pd
 import datetime
@@ -37,34 +36,37 @@ df.shape
 # Inspect csv data - first and last records
 df.iloc[np.r_[0:4, len(df) - 4:len(df)],]
 
-# Loop to start here
-# for i in df
-
 # Set training and testing ranges
 train_length = 400
 test_length = 3
 
-# Model data
-y_train_raw = np.array(df.iloc[0:train_length, 0])
-x_train_raw = np.array(df.iloc[0:train_length, 1:5])
-y_test_raw = np.array(df.iloc[train_length:train_length + test_length, 0])
-x_test_raw = np.array(df.iloc[train_length:train_length + test_length, 1:5])
+# Empty array
+y_pred_prob = np.array([(0, 0), (0, 0)])
 
-# Scale for model ingestion
-sc = StandardScaler()
-x_train = sc.fit_transform(x_train_raw)
+# Loop to start here
+for i in range(0, len(df) - train_length - test_length - 1, 3):
 
-# Apply mean and standard deviation from transform applied to training data to test data
-x_test = sc.transform(x_test_raw)
+    # Model data
+    y_train_raw = np.array(df.iloc[i:train_length, 0])
+    x_train_raw = np.array(df.iloc[i:train_length, 1:5])
+    y_test_raw = np.array(df.iloc[train_length:train_length + test_length, 0])
+    x_test_raw = np.array(df.iloc[train_length:train_length + test_length, 1:5])
 
-# Specifiy model
-sgd = linear_model.SGDClassifier(loss = 'log', penalty = 'elasticnet', max_iter = 1000, tol = 1e-3)
+    # Scale for model ingestion
+    sc = StandardScaler()
+    x_train = sc.fit_transform(x_train_raw)
 
-# Train model
-sgd.fit(x_train, y_train_raw)
+    # Apply mean and standard deviation from transform applied to training data to test data
+    x_test = sc.transform(x_test_raw)
 
-# Predict on test data
-y_pred_prob = sgd.predict_proba(x_test)
-y_pred = sgd.predict(x_test)
+    # Specifiy model
+    sgd = linear_model.SGDClassifier(loss = 'log', penalty = 'elasticnet', max_iter = 1000, tol = 1e-3)
 
-conf_matrix = confusion_matrix(y_test_raw, y_pred)
+    # Train model
+    sgd.fit(x_train, y_train_raw)
+
+    # Predict on test data
+    y_pred = sgd.predict_proba(x_test)
+    y_pred_prob = np.concatenate((y_pred_prob, y_pred))
+    #y_pred = sgd.predict(x_test)
+    #conf_matrix = confusion_matrix(y_test_raw, y_pred)
