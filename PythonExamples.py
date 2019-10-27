@@ -270,5 +270,7 @@ for num, year in enumerate(stripped_test_data, start=1):
 import numpy as np
 import pandas as pd
 
-df = pd.DataFrame(apps_data[1:], columns=apps_data[0])
+df = pd.DataFrame(apps_data[1:], columns = apps_data[0])
 df.iloc[0:4, np.r_[3, 1:2, 5:7]]
+df.iloc[2:5, 5:7]
+np.array(df.iloc[2:5, 5:7])
