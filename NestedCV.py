@@ -5,6 +5,7 @@ import datetime
 import math
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
+import sklearn.metrics as metrics
 from sklearn.preprocessing import StandardScaler
 from sklearn import linear_model
 
@@ -12,12 +13,12 @@ from sklearn import linear_model
 url = 'https://raw.githubusercontent.com/Brent-Morrison/Misc_scripts/master/econ_fin_data.csv'
 df_raw = pd.read_csv(url)
 
-# Convert to date
+# Convert to daet and create month end date
 df_raw['date'] = pd.to_datetime(df_raw['date'], format='%Y-%m-%d')
+df_raw['me_date'] = pd.Index(df_raw['date']).to_period('M').to_timestamp('M')
 
-# Set date as index
-# https://stackoverflow.com/questions/34366618/transform-pandas-timestamp-to-end-of-current-month
-df = df_raw.set_index('date')
+# Set date as index in new df
+df = df_raw.set_index('me_date')
 
 # Creation of attributes
 df = df.assign(
@@ -64,7 +65,7 @@ for i in range(start, stop, test_length):
     # Apply mean and standard deviation from transform applied to training data to test data
     x_test = sc.transform(x_test_raw)
 
-    # Specifiy model
+    # Specify model
     sgd = linear_model.SGDClassifier(
         loss = 'log'
         ,penalty = 'elasticnet'
@@ -82,14 +83,39 @@ for i in range(start, stop, test_length):
     else:
         y_pred_prob = np.concatenate((y_pred_prob, y_pred))
     #y_pred = sgd.predict(x_test)
-    #conf_matrix = confusion_matrix(y_test_raw, y_pred)
+
+preds = pd.DataFrame(
+    data = y_pred_prob
+    ,index = pd.date_range(start = df.index[train_length + start]
+                           ,periods = stop
+                           ,freq = 'M')
+    ,columns = [0, 1]
+    )
+preds = preds.assign(pred = np.where(preds[1] > 0.25, 1, 0))
+
+# Join predicitions to dataframe 
+df = df.join(preds)
+
+# Confusion matrix
+cf_pred = np.array(df.iloc[start + train_length:start + train_length + (loops * test_length), 7])
+cf_true = np.array(df.iloc[start + train_length:start + train_length + (loops * test_length), 0])
+conf_matrix = confusion_matrix(cf_true, cf_pred)
+
+# ROC curve
+roc_probs = np.array(df.iloc[start + train_length:start + train_length + (loops * test_length), 6])
+fpr, tpr, threshold = metrics.roc_curve(cf_true, roc_probs)
+roc_auc = metrics.auc(fpr, tpr)
+plt.title('Receiver Operating Characteristic')
+plt.plot(fpr, tpr, 'b', label = 'AUC = %0.2f' % roc_auc)
+plt.legend(loc = 'lower right')
+plt.plot([0, 1], [0, 1],'r--')
+plt.xlim([0, 1])
+plt.ylim([0, 1])
+plt.ylabel('True Positive Rate')
+plt.xlabel('False Positive Rate')
+plt.show()
 
 # TO DO
-# add date to output array to allow joining to the original Pandas dataframe
-# add threshold to predicted probability and show various confusion matrices 
-
-# Use the below to add index to results np.array
-# https://stackoverflow.com/questions/51992291/how-to-join-2-dataframe-on-year-and-month-in-pandas
-date_rng = pd.date_range(start = df.index[train_length + start], periods = stop, freq = 'M')
-
-
+# Create array of coefficents and intercepts in training loop, plot.
+sgd.coef_
+sgd.intercept_
