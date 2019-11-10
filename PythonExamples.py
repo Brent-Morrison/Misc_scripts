@@ -275,6 +275,18 @@ df.iloc[0:4, np.r_[3, 1:2, 5:7]]
 df.iloc[2:5, 5:7]
 np.array(df.iloc[2:5, 5:7])
 
+# Time series slicing
+rng = pd.date_range('1/1/2011', periods=72, freq='H')
+ts = pd.DataFrame({
+    'Value1': np.random.randn(len(rng)),
+    'Value2': np.random.randn(len(rng))
+}, index=rng)
+
+sdate = '2012-09'
+edate = '2013-02'
+df.loc[sdate:edate]
+df.first_valid_index()
+df.loc[df.first_valid_index():df.last_valid_index()]
 
 # Pandas case when example
 # https://stackoverflow.com/questions/19913659/pandas-conditional-creation-of-a-series-dataframe-column

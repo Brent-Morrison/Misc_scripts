@@ -3,7 +3,9 @@ import numpy as np
 import pandas as pd
 import datetime
 import math
+import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from sklearn.metrics import confusion_matrix
 import sklearn.metrics as metrics
 from sklearn.preprocessing import StandardScaler
@@ -76,33 +78,42 @@ for i in range(start, stop, test_length):
     # Train model
     sgd.fit(x_train, y_train_raw)
 
-    # Predict on test data
+    # Predict on test data and write to table
     y_pred = sgd.predict_proba(x_test)
     if y_pred_prob is None:
         y_pred_prob = y_pred
     else:
         y_pred_prob = np.concatenate((y_pred_prob, y_pred))
-    #y_pred = sgd.predict(x_test)
+    # TO DO
+    # Create array of coefficents and intercepts in training loop, use:
+    #   sgd.coef_
+    #   sgd.intercept_
+    # These are to go into the 'preds' dataframe
 
+# Create predictions dataframe with date index
 preds = pd.DataFrame(
     data = y_pred_prob
-    ,index = pd.date_range(start = df.index[train_length + start]
-                           ,periods = stop
-                           ,freq = 'M')
+    ,index = pd.date_range(
+        start = df.index[train_length + start]
+        ,periods = stop
+        ,freq = 'M')
     ,columns = [0, 1]
     )
+# Theshold for hard prediction, to beused in confusion matrix
 preds = preds.assign(pred = np.where(preds[1] > 0.25, 1, 0))
 
-# Join predicitions to dataframe 
-df = df.join(preds)
+# Join predictions to df & rename prediction to pred_prob
+preds = preds.join(df, how = 'inner')
+preds = preds.rename(columns = {1:'pred_prob'}).drop(columns = 0)
+preds.y1 = preds.y1.astype(int)
 
 # Confusion matrix
-cf_pred = np.array(df.iloc[start + train_length:start + train_length + (loops * test_length), 7])
-cf_true = np.array(df.iloc[start + train_length:start + train_length + (loops * test_length), 0])
+cf_pred = np.array(preds['pred'])
+cf_true = np.array(preds['y1'])
 conf_matrix = confusion_matrix(cf_true, cf_pred)
 
 # ROC curve
-roc_probs = np.array(df.iloc[start + train_length:start + train_length + (loops * test_length), 6])
+roc_probs = np.array(preds['pred_prob'])
 fpr, tpr, threshold = metrics.roc_curve(cf_true, roc_probs)
 roc_auc = metrics.auc(fpr, tpr)
 plt.title('Receiver Operating Characteristic')
@@ -115,7 +126,27 @@ plt.ylabel('True Positive Rate')
 plt.xlabel('False Positive Rate')
 plt.show()
 
-# TO DO
-# Create array of coefficents and intercepts in training loop, plot.
-sgd.coef_
-sgd.intercept_
+# Plot timeseries of SP500, prediction %, and y label shading
+#https://stackoverflow.com/questions/50465673/how-to-index-dates-while-drawing-rectangles
+import seaborn as sns
+sns.set_style('white', {"xtick.major.size": 2, "ytick.major.size": 2})
+flatui = ["#9b59b6", "#3498db", "#95a5a6", "#e74c3c", "#34495e", "#2ecc71","#f4cae4"]
+sns.set_palette(sns.color_palette(flatui,7))
+
+fig, (ax1, ax2) = plt.subplots(nrows = 2)
+ax1.plot(preds.index, preds['pred_prob'], 'k-')
+ax1.fill_between(
+    preds.index, 
+    preds['pred_prob'], 
+    y2 = 0, 
+    where = preds['y1']
+    )
+
+ax2.plot(preds.index, preds['CRED_SPRD'], 'k-')
+ax2.fill_between(
+    preds.index, 
+    preds['CRED_SPRD'], 
+    y2 = 0, 
+    where = preds['y1']
+    )
+fig.tight_layout()
