@@ -33,10 +33,11 @@ df = df.assign(
 df.iloc[np.r_[0:4, len(df) - 4:len(df)],]
 
 # List variables, dependent variable followed by predictors/ independent variables 
-df = df[['y1', 'CRED_SPRD', 'YLD_SPRD', 'LOAN_GROWTH', 'rtn_6m']]
+vars = ['y1', 'CRED_SPRD', 'YLD_SPRD', 'LOAN_GROWTH', 'rtn_6m', 'close']
+df = df[vars]
 
 # Drop na' when variables are not null / Nan
-df = df.dropna(subset = ['y1', 'CRED_SPRD', 'YLD_SPRD', 'LOAN_GROWTH', 'rtn_6m'])
+df = df.dropna(subset = vars)
 
 # Inspect csv data - first and last records
 df.iloc[np.r_[0:4, len(df) - 4:len(df)],]
@@ -106,6 +107,7 @@ preds = preds.assign(pred = np.where(preds[1] > 0.25, 1, 0))
 preds = preds.join(df, how = 'inner')
 preds = preds.rename(columns = {1:'pred_prob'}).drop(columns = 0)
 preds.y1 = preds.y1.astype(int)
+preds.close = np.log(preds['close'])
 
 # Confusion matrix
 cf_pred = np.array(preds['pred'])
@@ -142,11 +144,12 @@ ax1.fill_between(
     where = preds['y1']
     )
 
-ax2.plot(preds.index, preds['CRED_SPRD'], 'k-')
+ax2.plot(preds.index, preds['close'], 'k-')
 ax2.fill_between(
     preds.index, 
-    preds['CRED_SPRD'], 
+    preds['close'], 
     y2 = 0, 
     where = preds['y1']
     )
+ax2.set_ylim(bottom = 4.5)
 fig.tight_layout()
