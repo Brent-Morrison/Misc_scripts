@@ -54,7 +54,7 @@ stop = math.floor((len(df) - train_length) / test_length) * test_length
 
 # Empty objects
 y_pred_prob = None
-model_param = None
+model_coef = None
 
 # Training loop
 for i in range(start, stop, test_length):
@@ -83,14 +83,15 @@ for i in range(start, stop, test_length):
     # Train model
     sgd.fit(x_train, y_train_raw)
 
-    # Predict on test data and write to table
+    # Predict on test data and write to array
     y_pred = sgd.predict_proba(x_test)
     if y_pred_prob is None:
         y_pred_prob = y_pred
     else:
         y_pred_prob = np.concatenate((y_pred_prob, y_pred))
-     
-    param = np.repeat(
+
+    # Capture co-efficients and write to array
+    coef = np.repeat(
         np.append(
             sgd.intercept_[0], 
             sgd.coef_).reshape((1, -1)),
@@ -98,10 +99,10 @@ for i in range(start, stop, test_length):
         axis = 0
         )
     
-    if model_param is None:
-        model_param = param
+    if model_coef is None:
+        model_coef = coef
     else:
-        model_param = np.concatenate((model_param, param))
+        model_coef = np.concatenate((model_coef, coef))
 
 # Create predictions dataframe with date index
 df_preds = pd.DataFrame(
@@ -121,10 +122,11 @@ df_preds = df_preds.rename(columns = {1:'pred_prob'}).drop(columns = 0)
 df_preds.y1 = df_preds.y1.astype(int)
 df_preds.close = np.log(df_preds['close'])
 
-# Create parameters dataframe with date index
+# Create co-efficients dataframe with date index
 ind_vars.insert(0, 'Int')
-df_model_param = pd.DataFrame(
-    data = model_param
+ind_vars = [x + '_coef' for x in ind_vars]
+df_model_coef = pd.DataFrame(
+    data = model_coef
     ,index = pd.date_range(
         start = df.index[train_length + start]
         ,periods = stop
@@ -132,13 +134,22 @@ df_model_param = pd.DataFrame(
     ,columns = ind_vars
     )
 
+# Join predictions & co-efficients df's
+df_preds_coefs = df_preds.join(df_model_coef, how = 'inner')
+
 # Confusion matrix
-cf_pred = np.array(df_preds['pred'])
-cf_true = np.array(df_preds['y1'])
+cf_pred = np.array(df_preds_coefs['pred'])
+cf_true = np.array(df_preds_coefs['y1'])
 conf_matrix = confusion_matrix(cf_true, cf_pred)
 
+# Set plot style
+import seaborn as sns
+sns.set_style('white', {"xtick.major.size": 2, "ytick.major.size": 2})
+flatui = ["#c5b4cc", "#3498db", "#95a5a6", "#e74c3c", "#34495e", "#2ecc71","#f4cae4"]
+sns.set_palette(sns.color_palette(flatui,7))
+
 # Plot ROC curve
-roc_probs = np.array(df_preds['pred_prob'])
+roc_probs = np.array(df_preds_coefs['pred_prob'])
 fpr, tpr, threshold = metrics.roc_curve(cf_true, roc_probs)
 roc_auc = metrics.auc(fpr, tpr)
 plt.title('Receiver Operating Characteristic')
@@ -152,74 +163,68 @@ plt.xlabel('False Positive Rate')
 plt.show()
 
 # Plot timeseries of SP500, prediction %, and y label shading
-import seaborn as sns
-sns.set_style('white', {"xtick.major.size": 2, "ytick.major.size": 2})
-flatui = ["#c5b4cc", "#3498db", "#95a5a6", "#e74c3c", "#34495e", "#2ecc71","#f4cae4"]
-sns.set_palette(sns.color_palette(flatui,7))
-
 fig1, (ax1, ax2, ax3) = plt.subplots(nrows = 3)
-ax1.plot(df_preds.index, df_preds['pred_prob'], 'k-', 
+ax1.plot(df_preds_coefs.index, df_preds_coefs['pred_prob'], 'k-', 
     color = sns.xkcd_rgb['grey'])
 ax1.fill_between(
-    df_preds.index, 
-    df_preds['pred_prob'], 
+    df_preds_coefs.index, 
+    df_preds_coefs['pred_prob'], 
     y2 = 0, 
-    where = df_preds['y1']
+    where = df_preds_coefs['y1']
     )
 ax1.set_ylabel('Probability')
 
-ax2.plot(df_preds.index, df_preds['CRED_SPRD'], 'k-', 
+ax2.plot(df_preds_coefs.index, df_preds_coefs['CRED_SPRD'], 'k-', 
     color = sns.xkcd_rgb['grey'])
 ax2.fill_between(
-    df_preds.index, 
-    df_preds['CRED_SPRD'], 
+    df_preds_coefs.index, 
+    df_preds_coefs['CRED_SPRD'], 
     y2 = 0, 
-    where = df_preds['y1']
+    where = df_preds_coefs['y1']
     )
 ax2.set_ylabel('Credit spread')
 
-ax3.plot(df_preds.index, df_preds['close'], 'k-',
+ax3.plot(df_preds_coefs.index, df_preds_coefs['close'], 'k-',
     color = sns.xkcd_rgb['grey'])
 ax3.fill_between(
-    df_preds.index, 
-    df_preds['close'], 
+    df_preds_coefs.index, 
+    df_preds_coefs['close'], 
     y2 = 0, 
-    where = df_preds['y1']
+    where = df_preds_coefs['y1']
     )
 ax3.set_ylim(bottom = 4.5)
 ax3.set_ylabel('S&P500 (log scale)')
 fig1.tight_layout()
 
 # Plot parameters
-# TO DO: fill will only work if 'y1' is in the dataframe
 fig2, (ax1, ax2, ax3) = plt.subplots(nrows = 3)
-ax1.plot(df_model_param.index, df_model_param['Int'], 'k-', 
+ax1.plot(df_preds_coefs.index, df_preds_coefs['Int_coef'], 'k-', 
     color = sns.xkcd_rgb['grey'])
-#ax1.fill_between(
-#    df_model_param.index, 
-#    df_model_param['Int'], 
-#    y2 = 0, 
-#    where = df_model_param['y1']
-#    )
-ax1.set_ylabel('Int')
+ax1.fill_between(
+    df_preds_coefs.index, 
+    df_preds_coefs['Int_coef'], 
+    y2 = 0, 
+    where = df_preds_coefs['y1']
+    )
+ax1.set_ylabel('Intercept')
 
-ax2.plot(df_model_param.index, df_model_param['CRED_SPRD'], 'k-', 
+ax2.plot(df_preds_coefs.index, df_preds_coefs['CRED_SPRD_coef'], 'k-', 
     color = sns.xkcd_rgb['grey'])
-#ax2.fill_between(
-#    df_model_param.index, 
-#    df_model_param['CRED_SPRD'], 
-#    y2 = 0, 
-#    where = df_model_param['y1']
-#    )
+ax2.fill_between(
+    df_preds_coefs.index, 
+    df_preds_coefs['CRED_SPRD_coef'], 
+    y2 = 0, 
+    where = df_preds_coefs['y1']
+    )
 ax2.set_ylabel('Credit spread')
 
-ax3.plot(df_model_param.index, df_model_param['YLD_SPRD'], 'k-',
+ax3.plot(df_preds_coefs.index, df_preds_coefs['YLD_SPRD_coef'], 'k-',
     color = sns.xkcd_rgb['grey'])
-#ax3.fill_between(
-#    df_model_param.index, 
-#    df_model_param['close'], 
-#    y2 = 0, 
-#    where = df_model_param['y1']
-#    )
+ax3.fill_between(
+    df_preds_coefs.index, 
+    df_preds_coefs['YLD_SPRD_coef'], 
+    y2 = 0, 
+    where = df_preds_coefs['y1']
+    )
 ax3.set_ylabel('Yield spread')
 fig2.tight_layout()
