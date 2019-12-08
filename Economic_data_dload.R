@@ -124,5 +124,8 @@ sp_shade <-  data.frame(head(sp_5s,short), head(sp_5e,short))
 
 econ_fin_data <- inner_join(econ.m, sp_5, by = "date")
 
-saveRDS(econ_fin_data, file="econ_fin_data.Rda")
-saveRDS(sp_shade, file="sp_shade.Rda")
+saveRDS(econ_fin_data, file = "econ_fin_data.Rda")
+saveRDS(sp_shade, file = "sp_shade.Rda")
+
+write_csv(econ_fin_data, path = "econ_fin_data.csv")
+write_csv(sp_shade, path = "sp_shade.csv")
