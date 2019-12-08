@@ -1,8 +1,8 @@
-
 #===============================================================================================
 #==    REQIURED PACKAGES                                                                      ==
 #===============================================================================================
 
+library("tidyverse")
 library("DescTools")
 library("tidyquant")
 library("timetk")
@@ -18,7 +18,7 @@ lb = 6                  #  Lookback period
 pc = 0.2                #  Percent drawdown for binary market in/out indicator cutoff
 fr = -0.025             #  Forward return for binary market in/out indicator cutoff
 s.date = as.Date("1945-01-01")
-e.date = as.Date("2018-11-01")
+e.date = as.Date("2019-11-01")
 quandl_api_key("hpbPcsfGudN3viBgh8th")
 qndlm = c("NAHB/NWFHMI.1",
           "ISM/MAN_NEWORDERS.5")
@@ -126,4 +126,3 @@ econ_fin_data <- inner_join(econ.m, sp_5, by = "date")
 
 saveRDS(econ_fin_data, file="econ_fin_data.Rda")
 saveRDS(sp_shade, file="sp_shade.Rda")
-
