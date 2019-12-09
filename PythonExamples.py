@@ -174,6 +174,16 @@ for j in apps_data[1:]:
 # Print max of characters string in ASCII integer format
 print(ord(max(apps_data[1][1])))
 
+# Create dictionary from loop
+visitors_per_month = {}
+
+for row in potus:
+    date_str = row[2]
+    date_dt = dt.datetime.strftime(date_str, "%B, %Y")
+    if date_dt not in visitors_per_month:
+        visitors_per_month[date_dt] = 1
+    else:
+        visitors_per_month[date_dt] += 1
 
 # GENERAL EXAMPLES
 # For loop to list comprehension
@@ -272,7 +282,8 @@ import pandas as pd
 
 df = pd.DataFrame(apps_data[1:], columns = apps_data[0])
 df.iloc[0:4, np.r_[3, 1:2, 5:7]]
-df.iloc[2:5, 5:7]
+df.iloc[2:5, 5:7]  # is the same as....
+df.loc[df.index[2:5], 'rating_count_tot':'rating_count_ver']
 np.array(df.iloc[2:5, 5:7])
 
 # Time series slicing
@@ -290,3 +301,33 @@ df.loc[df.first_valid_index():df.last_valid_index()]
 
 # Pandas case when example
 # https://stackoverflow.com/questions/19913659/pandas-conditional-creation-of-a-series-dataframe-column
+
+# Dataquest opject oriented programming
+class NewList(DQ):
+    """
+    A Python list with some extras!
+    """
+    def __init__(self, initial_state):
+        self.data = initial_state
+        self.calc_length()
+
+    def append(self, new_item):
+        """
+        Append `new_item` to the NewList
+        """
+        self.data = self.data + [new_item]
+        self.calc_length()
+        
+    def calc_length(self):
+        # we added code below this comment
+        length = 0
+        for item in self.data:
+            length += 1
+        self.length = length
+        # we added code above this comment
+
+fibonacci = NewList([1, 1, 2, 3, 5])
+print(fibonacci.data)
+
+fibonacci.append(8)
+print(fibonacci.length)

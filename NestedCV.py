@@ -1,21 +1,25 @@
 # Import required libraries
 import numpy as np
 import pandas as pd
+from pandas.plotting import register_matplotlib_converters
+register_matplotlib_converters()
 import datetime
 import math
+import seaborn as sns
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from sklearn.metrics import confusion_matrix
+plt.rcParams["figure.figsize"] = (12, 8)
 import sklearn.metrics as metrics
-from sklearn.preprocessing import StandardScaler
 from sklearn import linear_model
+from sklearn.metrics import confusion_matrix
+from sklearn.preprocessing import StandardScaler
 
 # Read csv fle from github
 url = 'https://raw.githubusercontent.com/Brent-Morrison/Misc_scripts/master/econ_fin_data.csv'
 df_raw = pd.read_csv(url)
 
-# Convert to daet and create month end date
+# Convert date to datetime and create month end date
 df_raw['date'] = pd.to_datetime(df_raw['date'], format='%Y-%m-%d')
 df_raw['me_date'] = pd.Index(df_raw['date']).to_period('M').to_timestamp('M')
 
@@ -32,11 +36,14 @@ df = df.assign(
 # Inspect csv data - first and last records
 df.iloc[np.r_[0:4, len(df) - 4:len(df)],]
 
-# List variables, dependent variable followed by predictors/ independent variables 
-# and variable to be used in the plot
-vars = ['y1', 'CRED_SPRD', 'YLD_SPRD', 'LOAN_GROWTH', 'rtn_6m', 'close']
-# List independent variable, this will be used to label the paramater time series array
+# List variables  
+# Dependent variable
+dep_var = ['y1']
+# Predictors/ independent variables
 ind_vars = ['CRED_SPRD', 'YLD_SPRD', 'LOAN_GROWTH', 'rtn_6m']
+# Other variables to be used in the plot
+oth_vars = ['close']
+vars = dep_var + ind_vars + oth_vars
 df = df[vars]
 
 # Drop na' when variables are not null / Nan
@@ -61,9 +68,9 @@ for i in range(start, stop, test_length):
 
     # Model data
     y_train_raw = np.array(df.iloc[i:i + train_length, 0])
-    x_train_raw = np.array(df.iloc[i:i + train_length, 1:5])
+    x_train_raw = np.array(df.iloc[i:i + train_length, 1:len(vars) - 1])
     y_test_raw = np.array(df.iloc[i + train_length:i + train_length + test_length, 0])
-    x_test_raw = np.array(df.iloc[i + train_length:i + train_length + test_length, 1:5])
+    x_test_raw = np.array(df.iloc[i + train_length:i + train_length + test_length, 1:len(vars) - 1])
 
     # Scale for model ingestion
     sc = StandardScaler()
@@ -113,7 +120,7 @@ df_preds = pd.DataFrame(
         ,freq = 'M')
     ,columns = [0, 1]
     )
-# Theshold for hard prediction, to beused in confusion matrix
+# Theshold for hard prediction, to populate confusion matrix
 df_preds = df_preds.assign(pred = np.where(df_preds[1] > 0.25, 1, 0))
 
 # Join predictions to df & rename prediction to pred_prob
@@ -137,33 +144,19 @@ df_model_coef = pd.DataFrame(
 # Join predictions & co-efficients df's
 df_preds_coefs = df_preds.join(df_model_coef, how = 'inner')
 
-# Confusion matrix
-cf_pred = np.array(df_preds_coefs['pred'])
-cf_true = np.array(df_preds_coefs['y1'])
-conf_matrix = confusion_matrix(cf_true, cf_pred)
+# Inspect dataframe of prediction probability
+df_preds_coefs.iloc[np.r_[0:4, len(df_preds_coefs) - 4:len(df_preds_coefs)],]
 
 # Set plot style
-import seaborn as sns
 sns.set_style('white', {"xtick.major.size": 2, "ytick.major.size": 2})
 flatui = ["#c5b4cc", "#3498db", "#95a5a6", "#e74c3c", "#34495e", "#2ecc71","#f4cae4"]
 sns.set_palette(sns.color_palette(flatui,7))
 
-# Plot ROC curve
-roc_probs = np.array(df_preds_coefs['pred_prob'])
-fpr, tpr, threshold = metrics.roc_curve(cf_true, roc_probs)
-roc_auc = metrics.auc(fpr, tpr)
-plt.title('Receiver Operating Characteristic')
-plt.plot(fpr, tpr, 'b', label = 'AUC = %0.2f' % roc_auc)
-plt.legend(loc = 'lower right')
-plt.plot([0, 1], [0, 1],'r--')
-plt.xlim([0, 1])
-plt.ylim([0, 1])
-plt.ylabel('True Positive Rate')
-plt.xlabel('False Positive Rate')
-plt.show()
-
 # Plot timeseries of SP500, prediction %, and y label shading
-fig1, (ax1, ax2, ax3) = plt.subplots(nrows = 3)
+fig1, (ax1, ax2) = plt.subplots(nrows = 2)
+fig1.suptitle('Prediction probability and S&P 500', size = 16).set_y(1.05)
+fig1.subplots_adjust(top = 0.85)
+
 ax1.plot(df_preds_coefs.index, df_preds_coefs['pred_prob'], 'k-', 
     color = sns.xkcd_rgb['grey'])
 ax1.fill_between(
@@ -174,36 +167,30 @@ ax1.fill_between(
     )
 ax1.set_ylabel('Probability')
 
-ax2.plot(df_preds_coefs.index, df_preds_coefs['CRED_SPRD'], 'k-', 
+ax2.plot(df_preds_coefs.index, df_preds_coefs['close'], 'k-',
     color = sns.xkcd_rgb['grey'])
 ax2.fill_between(
-    df_preds_coefs.index, 
-    df_preds_coefs['CRED_SPRD'], 
-    y2 = 0, 
-    where = df_preds_coefs['y1']
-    )
-ax2.set_ylabel('Credit spread')
-
-ax3.plot(df_preds_coefs.index, df_preds_coefs['close'], 'k-',
-    color = sns.xkcd_rgb['grey'])
-ax3.fill_between(
     df_preds_coefs.index, 
     df_preds_coefs['close'], 
     y2 = 0, 
     where = df_preds_coefs['y1']
     )
-ax3.set_ylim(bottom = 4.5)
-ax3.set_ylabel('S&P500 (log scale)')
+ax2.set_ylim(bottom = 4.5)
+ax2.set_ylabel('S&P500 (log scale)')
 fig1.tight_layout()
 
+
 # Plot parameters
-fig2, (ax1, ax2, ax3) = plt.subplots(nrows = 3)
+fig2, (ax1, ax2, ax3, ax4) = plt.subplots(nrows = 4)
+fig2.suptitle('Rolling regression parameters', size = 16).set_y(1.05)
+fig2.subplots_adjust(top = 0.85)
+
 ax1.plot(df_preds_coefs.index, df_preds_coefs['Int_coef'], 'k-', 
     color = sns.xkcd_rgb['grey'])
 ax1.fill_between(
     df_preds_coefs.index, 
     df_preds_coefs['Int_coef'], 
-    y2 = 0, 
+    y2 = df_preds_coefs['Int_coef'].min(), 
     where = df_preds_coefs['y1']
     )
 ax1.set_ylabel('Intercept')
@@ -213,7 +200,7 @@ ax2.plot(df_preds_coefs.index, df_preds_coefs['CRED_SPRD_coef'], 'k-',
 ax2.fill_between(
     df_preds_coefs.index, 
     df_preds_coefs['CRED_SPRD_coef'], 
-    y2 = 0, 
+    y2 = df_preds_coefs['CRED_SPRD_coef'].min(),
     where = df_preds_coefs['y1']
     )
 ax2.set_ylabel('Credit spread')
@@ -223,8 +210,18 @@ ax3.plot(df_preds_coefs.index, df_preds_coefs['YLD_SPRD_coef'], 'k-',
 ax3.fill_between(
     df_preds_coefs.index, 
     df_preds_coefs['YLD_SPRD_coef'], 
-    y2 = 0, 
+    y2 = df_preds_coefs['YLD_SPRD_coef'].min(),
     where = df_preds_coefs['y1']
     )
 ax3.set_ylabel('Yield spread')
+
+ax4.plot(df_preds_coefs.index, df_preds_coefs['LOAN_GROWTH_coef'], 'k-',
+    color = sns.xkcd_rgb['grey'])
+ax4.fill_between(
+    df_preds_coefs.index, 
+    df_preds_coefs['LOAN_GROWTH_coef'], 
+    y2 = df_preds_coefs['LOAN_GROWTH_coef'].min(),
+    where = df_preds_coefs['y1']
+    )
+ax4.set_ylabel('Loan growth')
 fig2.tight_layout()
