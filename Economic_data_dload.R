@@ -8,6 +8,7 @@ library("tidyquant")
 library("timetk")
 library("broom")
 library("tibbletime")
+library("RcppRoll")
 
 
 #===============================================================================================
@@ -18,10 +19,10 @@ lb = 6                  #  Lookback period
 pc = 0.2                #  Percent drawdown for binary market in/out indicator cutoff
 fr = -0.025             #  Forward return for binary market in/out indicator cutoff
 s.date = as.Date("1945-01-01")
-e.date = as.Date("2019-11-01")
+e.date = as.Date("2019-12-01")
 quandl_api_key("hpbPcsfGudN3viBgh8th")
-qndlm = c("NAHB/NWFHMI.1",
-          "ISM/MAN_NEWORDERS.5")
+qndlm = c("NAHB/NWFHMI.1",  #  NAHB / Wells Fargo National Housing Market Index
+          "ISM/MAN_NEWORDERS.5")  #  ISM Manufacturing New Orders Index
 fredw = c("IC4WSA")
 fredm = c("AAA",       #	Moody's Seasoned Aaa Corporate Bond Yield
           "ACDGNO",    #	Value of Manufacturers' New Orders for Consumer Goods: Consumer
@@ -51,39 +52,39 @@ fredm = c("AAA",       #	Moody's Seasoned Aaa Corporate Bond Yield
 #==    GET DATA                                                                               ==
 #===============================================================================================
 
-#get stock data
-sp_5   <-  tq_get("^GSPC",get = "stock.prices",from = s.date)
+# Get stock data
+sp_5   <-  tq_get("^GSPC", get = "stock.prices",from = s.date)
 
-#get fred monthly economic data
+# Get fred monthly economic data
 econ.m1 <- tq_get(fredm, get = "economic.data",from = s.date)
 
-#spread fred monthly data to column, add spreads
+# Spread fred monthly data to column, add spreads
 econ.m2 <- spread(econ.m1, symbol, price) %>% 
   fill(ACDGNO, CFNAIDIFF, ISRATIO)
 
-#get fred weekly economic data
+# Get fred weekly economic data
 econ.w1 <- tq_get(fredw, get = "economic.data", from = s.date)
 
-#convert weekly data to monthly frequency
+# Convert weekly data to monthly frequency
 econ.m3 <- econ.w1 %>% 
   rename("IC4WSA" = "price") %>%
   group_by(month=floor_date(date, "month")) %>% 
   summarize(IC4WSA = last(IC4WSA)) %>%
   rename("date" = "month") 
 
-#get quandl monthy data
+# Get quandl monthy data
 econ.m4 <- tq_get(qndlm,get="quandl",from="1985-03-01") %>%
   mutate(price = if_else(is.na(value), index, value), 
          date = floor_date(if_else(is.na(date), month, date),"month")) %>%
   select(symbol, date, price) %>% spread(symbol, price) %>%
   rename(HMI = "NAHB/NWFHMI.1", NEWORD = "ISM/MAN_NEWORDERS.5") 
 
-#get Shiller download: http://www.econ.yale.edu/~shiller/data.htm
+# Get Shiller download: http://www.econ.yale.edu/~shiller/data.htm
 econ.m5 <- read.zoo(file = "Shiller.csv",FUN = as.Date, header = T, sep = ",", format= "%d/%m/%Y", index.column = 1)
 econ.m5 <- tk_tbl(econ.m5, rename_index = "date") %>% 
   mutate(date = floor_date(date, "month"))
 
-#join all data (except stock data)
+# Join all data (except stock data)
 econ.m  <- full_join(econ.m2, econ.m3, by = "date")
 econ.m  <- full_join(econ.m, econ.m4, by = "date")
 econ.m  <- full_join(econ.m, econ.m5, by = "date") %>% 
@@ -94,18 +95,38 @@ econ.m  <- full_join(econ.m, econ.m5, by = "date") %>%
 #==    MANIPULATE STOCK DATA                                                                  ==
 #===============================================================================================
 
+# Volatility calcs
+sp_5vol <- sp_5 %>% mutate(
+  rtn = log(close)-lag(log(close)),
+  vol_1m = roll_sd(rtn, n = 20, na.rm = TRUE, align = "right", fill = NA) * sqrt(252),
+  vol_3m = roll_sd(rtn, n = 60, na.rm = TRUE, align = "right", fill = NA) * sqrt(252)) %>% 
+  
+  # Roll up to monthly periodicity
+  group_by(month = floor_date(date, "month")) %>% 
+  summarise(
+    sp5_dly_vol_1m = last(vol_1m),
+    sp5_dly_vol_3m = last(vol_3m)) %>% 
+  select(
+    date = month, 
+    sp5_dly_vol_1m, 
+    sp5_dly_vol_3m) %>% 
+  ungroup()
+
+# To monthly
 sp_5 <- sp_5 %>% 
-  group_by(month=floor_date(date, "month")) %>%
+  group_by(month = floor_date(date, "month")) %>%
   summarize(low = min(low), close = last(close), volume = sum(volume)) %>%
   rename("date" = "month") %>% 
   tq_mutate(select = close, mutate_fun = periodReturn, period = "monthly", type = "log", col_rename  = "rtn_m") %>%
   mutate(fwd_rtn_m = lead(rtn_m,1)) %>% 
   tq_mutate(select = rtn_m, mutate_fun = rollapply, width = lb, FUN = sum, col_rename  = "rtn_6m") %>%
   tq_mutate(select = low, mutate_fun = rollapply, width = lb, FUN = min, col_rename  = "min_6m") %>%
-  mutate(dd_6m = -lag(log(close),n=lb)+log(min_6m)) %>%
-  mutate(flag = ifelse(rtn_6m < fr | dd_6m < -pc , 1, 0)) %>%
-  mutate(y1 = lead(flag,lb)) %>%
-  mutate(diff_flag = c(NA, diff(y1)))
+  mutate(
+    dd_6m = -lag(log(close),n = lb) + log(min_6m),
+    flag = ifelse(rtn_6m < fr | dd_6m < -pc , 1, 0),
+    y1 = lead(flag,lb),
+    diff_flag = c(NA, diff(y1))
+    )
 
 
 #===============================================================================================
@@ -123,9 +144,13 @@ sp_shade <-  data.frame(head(sp_5s,short), head(sp_5e,short))
 #===============================================================================================
 
 econ_fin_data <- inner_join(econ.m, sp_5, by = "date")
+econ_fin_data <- inner_join(econ_fin_data, sp_5vol, by = "date")
 
 saveRDS(econ_fin_data, file = "econ_fin_data.Rda")
 saveRDS(sp_shade, file = "sp_shade.Rda")
 
 write_csv(econ_fin_data, path = "econ_fin_data.csv")
 write_csv(sp_shade, path = "sp_shade.csv")
+
+# Calculate bond return per this
+# https://eur.figshare.com/articles/Data_Treasury_Bond_Return_Data_Starting_in_1962/8152748
