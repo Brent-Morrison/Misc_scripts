@@ -133,7 +133,7 @@ apps_data_NEW = ['id_NEW',
   'ipadSc_urls.',
   'lang',
   'vpp']
-
+  
 # Insert new header
 apps_data.insert(0, apps_data_NEW)
 
@@ -169,10 +169,12 @@ for j in apps_data[1:]:
     print('> 2 non-English')
   else:
     print('<= 2 non-English')
+
     
 
 # Print max of characters string in ASCII integer format
 print(ord(max(apps_data[1][1])))
+
 
 # Create dictionary from loop
 visitors_per_month = {}
