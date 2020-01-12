@@ -43,8 +43,8 @@ econ_fin_data <- econ_fin_data %>%
     infl = lag(ROC(CPIAUCSL, n = 12), n = 1),  
     rule_20 = earn_yld - infl,  #(close / lag(E, n = 6)) + (infl * 100),
     m2 = lag(ROC(M2SL, n = 12),n = 1),
-    cred = lag(BAA - AAA, n = 1),
-    cred_12m = ROC(cred, n = 12),
+    cred_sprd = lag(BAA - AAA, n = 1),
+    cred_sprd_12m_delta = cred_sprd - lag(cred_sprd, n = 1),
     acdgno = lag(ROC(ACDGNO, n = 12),n = 1),
     awhman = lag(AWHMAN, n = 1),
     neword = lag(NEWORD, n = 1),
@@ -100,22 +100,19 @@ econ_fin_data <- inner_join(econ_fin_data, vltn_model, by = "date")
 
 #========================================================================================
 #==     Data for model                                                                 ==
-#== https://rstudio.com/resources/webinars/creating-and-preprocessing-a-design-matrix-with-recipes/
 #== https://edwinth.github.io/blog/recipes_blog/
 #========================================================================================    
 
 # Data for model
 df_data <- econ_fin_data %>% 
-  filter(date > "1969-05-01") %>% 
+  filter(date > "1961-01-01") %>% 
   select(
     date, 
-    sp5_rtn_6m, 
-    CFNAIDIFF, 
-    infl, 
-    m2, 
     fwd_rtn_m, 
-    cred, 
-    trsy2_10
+    sp5_rtn_6m, 
+    cred_sprd, 
+    cred_sprd_12m_delta,
+    ff_10
   ) %>% 
   as.data.frame()
 
@@ -155,18 +152,12 @@ nested_df <- nested_df %>%
     params = map2(train_X, train_Y,  ~ list(X = .x, Y = .y))
   ) 
 
-# Check nested df via unnesting
-#train <- unnest(nested_df[20,2], cols = c(train))
-#test <- unnest(nested_df[20,3], cols = c(test))
-#train_X <- unnest(nested_df[20,4], cols = c(train_X))
-#train_Y <- unnest(nested_df[20,5], cols = c(train_Y))
-
 
 #========================================================================================
 #==     Model functions                                                                ==
 #========================================================================================  
 
-### Cubist model
+### Cubist model ###
 # See the plotting functions here https://github.com/erblast/oetteR/
 cubist_model_fun <- function(X, Y) {
   train(
@@ -185,7 +176,7 @@ cubist_model_fun <- function(X, Y) {
   )
 }
 
-### MARS model
+### MARS model ###
 # Useful explanations http://rpubs.com/erblast/mars, 
 # http://www.milbo.org/doc/earth-notes.pdf,
 # http://uc-r.github.io/mars
@@ -200,7 +191,7 @@ mars_model_fun <- function(X, Y) {
     x = X,
     y = Y,
     method = "earth",
-    minspan = -3,  
+    #minspan = 30,  
     #endspan = 30,
     metric = "RMSE",
     trControl = trainControl(
@@ -214,29 +205,30 @@ mars_model_fun <- function(X, Y) {
   )
 }
 
-# Put models in a list
+### Put models in a list ###
 model_list <- list(
-  cubist_model = cubist_model_fun#,
-  #mars_model = mars_model_fun
+  cubist_model = cubist_model_fun,
+  mars_model = mars_model_fun
 ) %>%
-  enframe(name = 'modelName',value = 'model')
+  enframe(name = 'model_name',value = 'model')
 
-# Join models and data
+### Join models and data ##
 nested_df <- nested_df %>%
   crossing(model_list)
 
-# Fit models
+### Fit models ###
 nested_df <- nested_df %>% 
   mutate(fitted_model = invoke_map(model, params))
 
-# Predict
-# http://ijlyttle.github.io/isugg_purrr/presentation.html#(20)
+### Predict ###
 preds <- nested_df %>%
   transmute(
     nest_label = nest_label,
+    model_name = model_name,  
+    test_start_date = as.Date(paste0(str_sub(nest_label, -7, -1), "-01")) %m-% months(test_length - 1),
+    date = map(test_start_date, ~ seq(as.Date(.x), by = "month", length = test_length)),
     pred = map2(fitted_model, test_X, predict)) %>% 
-  unnest(cols = c(pred))
-
+  unnest(cols = c(date, pred))
 
 
 
@@ -247,7 +239,7 @@ preds <- nested_df %>%
 # Testing nesting approach
 # Test training single cubist model
 train_X = df_data %>% select(-fwd_rtn_m, -date)
-train_Y = as.data.frame(df_data$fwd_rtn_m)
+train_Y = df_data$fwd_rtn_m
 
 cubist_model <- train(
   x = train_X,
@@ -295,5 +287,4 @@ xx3 <- xx1 %>%
   unnest(cols = c(var_imp, var_imp_usage)) %>% 
   select(-Conditions, -Model) %>% 
   pivot_wider(names_from = Variable, values_from = Overall)
-
 
