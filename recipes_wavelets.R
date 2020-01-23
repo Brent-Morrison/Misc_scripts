@@ -10,6 +10,11 @@ library("tidyverse")
 library("wavelets")
 library("recipes")
 
+
+##================================================================================
+## Using recipes
+##================================================================================
+
 # Getting data
 data(biomass)
 biomass <- as.data.frame(biomass)
@@ -75,3 +80,57 @@ trained_Haar_recipe <- prep(Haar_recipe, training = train_biomass)
 # Apply to the training and test set
 train_data <- bake(trained_Haar_recipe, new_data = train_biomass)
 test_data_modwt <- bake(trained_Haar_recipe, new_data = test_biomass)
+
+
+
+##================================================================================
+## Using Len Keifer method
+##================================================================================
+
+# Data
+econ_fin_data <- readRDS("C:/Users/brent/Documents/R/Misc_scripts/econ_fin_data.Rda")
+
+
+df1 <- econ_fin_data %>% 
+  mutate(cred_sprd = BAA - AAA) %>% 
+  select(date, cred_sprd) %>% 
+  drop_na()
+
+modwt_obj <- modwt(
+  X = as.matrix(df1[,2]), 
+  filter = "haar", 
+  n.levels = 6, 
+  boundary = "periodic"
+)
+
+wavelet_w <- data.frame(modwt_obj@W)
+wavelet_v <- data.frame(modwt_obj@V)
+
+df2 <- bind_cols(df1, wavelet_w) %>% 
+  pivot_longer(-date, names_to = "metric", values_to = "value")
+
+ggplot(
+  data = df2, 
+  aes(
+    x = date, 
+    y = value, 
+    group = 1)
+) +
+  geom_line() +
+  facet_wrap(~ metric, ncol = 2, scales = "free_y") +
+  #scale_y_log10() +
+  #theme_minimal() +
+  labs(
+    title = "TITLE", 
+    subtitle = "SUB-TITLE",
+    caption = "CAPTION", 
+    x = "X LABEL",
+    y = "Y LABEL"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(face = "italic", size = 9),
+    plot.caption = element_text(hjust = 0),
+    axis.title.y = element_text(face = "italic", size = 9),
+    axis.title.x = element_text(face = "italic", size = 9)
+  )
