@@ -1,6 +1,6 @@
 #========================================================================================
 #==      Load required packages, source functions &                                    ==
-#==      load required da                                                              ==
+#==      load required data                                                            ==
 #========================================================================================
 
 library("tidyverse")
@@ -33,7 +33,7 @@ rolling_median <- rollify(median, window = 61)
 #rolling_pca <- rollify(prcomp, window = 61)
 
 econ_fin_data <- econ_fin_data %>% 
-  filter(between(date, as.Date("1954-12-01"), as.Date("2019-12-01"))) %>% 
+  filter(between(date, as.Date("1945-06-01"), as.Date("2019-12-01"))) %>% 
   mutate(
     fwd_rtn_m = sp5_fwd_rtn_1m,
     trsy2_10 = DGS10 - DGS2, 
@@ -79,6 +79,7 @@ econ_fin_data <- econ_fin_data %>%
 
 #========================================================================================
 #==     Valuation model                                                                ==
+#==     TODO - put this into a recipe                                                  ==
 #========================================================================================
 
 vltn_model <- econ_fin_data %>% 
@@ -105,20 +106,35 @@ econ_fin_data <- inner_join(econ_fin_data, vltn_model, by = "date")
 
 # Data for model
 df_data <- econ_fin_data %>% 
-  filter(date > "1961-01-01") %>% 
   select(
     date, 
     fwd_rtn_m, 
+    sp5_rtn_1m,
     sp5_rtn_6m, 
     cred_sprd, 
     cred_sprd_12m_delta,
     ff_10
   ) %>% 
+  mutate(
+    sp5_rtn_6m_lag6 = lag(sp5_rtn_6m, 6),
+    sp5_rtn_6m_lag12 = lag(sp5_rtn_6m, 12),
+    cred_sprd_lag6 = lag(cred_sprd, 6),
+    cred_sprd_lag12 = lag(cred_sprd, 12),
+    cred_sprd_12m_delta_lag6 = lag(cred_sprd_12m_delta, 6),
+    cred_sprd_12m_delta_lag12 = lag(cred_sprd_12m_delta, 12)
+  ) %>% 
+  filter(date > "1961-06-01") %>% 
   as.data.frame()
 
 train_length <- 240
 vldn_length <- 120
 test_length <- 12
+
+#========================================================================================
+#==     Create nested dataframe VERSION 1                                              ==
+#==     TODO - update "ts_nest" custom function with code below                        ==
+#========================================================================================
+
 data_length <- nrow(df_data)
 loops <- floor((nrow(df_data) - (train_length + vldn_length)) / test_length)
 start <- nrow(df_data) - ((loops * test_length) + (train_length + vldn_length)) + 1
@@ -150,8 +166,12 @@ nested_df <- nested_df %>%
     train_Y = map(train, ~ .x$fwd_rtn_m),                                   # map(train, "fwd_rtn_m"), 
     test_X = map(test, ~ as.data.frame(select(., -fwd_rtn_m))),             # fwd_rtn_m to be fcn param
     params = map2(train_X, train_Y,  ~ list(X = .x, Y = .y))
-  ) 
+  ) %>% 
+  select(-train_X, -train_Y)# train_X and train_Y now be dropped
 
+#unnest_test <- unnest(nested_df[28, 7], cols = c(params))
+#unnest_test_X <- unnest(unnest_test[1, 1], cols = c(params))
+#unnest_test_Y <- unnest(unnest_test[2, 1], cols = c(params))
 
 #========================================================================================
 #==     Model functions                                                                ==
@@ -177,7 +197,8 @@ cubist_model_fun <- function(X, Y) {
 }
 
 ### MARS model ###
-# Useful explanations http://rpubs.com/erblast/mars, 
+# Useful explanations 
+# http://rpubs.com/erblast/mars, 
 # http://www.milbo.org/doc/earth-notes.pdf,
 # http://uc-r.github.io/mars
 # Tuning parameter 'degree' is number of interaction effects allowed,
@@ -209,10 +230,10 @@ mars_model_fun <- function(X, Y) {
 model_list <- list(
   cubist_model = cubist_model_fun,
   mars_model = mars_model_fun
-) %>%
+  ) %>%
   enframe(name = 'model_name',value = 'model')
 
-### Join models and data ##
+### Join models and data ###
 nested_df <- nested_df %>%
   crossing(model_list)
 
