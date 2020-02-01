@@ -16,6 +16,7 @@ library("scales")
 library("DescTools")
 library("Cubist")
 library("cowplot")
+library("recipes")
 
 # source("C:/Users/brent/Documents/R/Custom_functions/Function_script.R")
 source("https://raw.githubusercontent.com/Brent-Morrison/Custom_functions/master/Function_script.R")
@@ -135,7 +136,6 @@ test_length <- 12
 #==     TODO - update "ts_nest" custom function with code below                        ==
 #========================================================================================
 
-data_length <- nrow(df_data)
 loops <- floor((nrow(df_data) - (train_length + vldn_length)) / test_length)
 start <- nrow(df_data) - ((loops * test_length) + (train_length + vldn_length)) + 1
 
@@ -173,23 +173,51 @@ nested_df <- nested_df %>%
 #unnest_test_X <- unnest(unnest_test[1, 1], cols = c(params))
 #unnest_test_Y <- unnest(unnest_test[2, 1], cols = c(params))
 
+
+#========================================================================================
+#==     Create nested dataframe VERSION 2                                              ==
+#==     and recipe                                                                     ==
+#========================================================================================
+
+nested_df_2 <- ts_nest(df_data, fwd_rtn_m, 240,120, 12)
+
+df_recipe <- recipe(fwd_rtn_m ~ ., data = df_data) %>% 
+  step_normalize(all_predictors())
+
+
 #========================================================================================
 #==     Model functions                                                                ==
 #========================================================================================  
 
+# Specify trControl
+tc <- trainControl(
+  method = "cv", 
+  index = list(1:train_length),
+  indexOut = list((train_length + 1):(train_length + vldn_length))
+  )
+
 ### Cubist model ###
 # See the plotting functions here https://github.com/erblast/oetteR/
-cubist_model_fun <- function(X, Y) {
+cubist_model_fun_old <- function(X, Y) {
   train(
     x = X,
     y = Y,
     method = 'cubist',
     #metric = "RMSE", can we use huber loss here?
-    trControl = trainControl(
-      method = "cv", 
-      index = list(1:train_length),
-      indexOut = list((train_length + 1):(train_length + vldn_length))
-    ),
+    trControl = tc,
+    tuneGrid = expand.grid(
+      committees = c(1, 5, 10, 50),
+      neighbors = c(0, 1, 3, 5, 7, 9))
+  )
+}
+
+cubist_model_fun <- function(X, DATA) {
+  train(
+    x = X,
+    data = DATA,
+    method = 'cubist',
+    #metric = "RMSE", can we use huber loss here?
+    trControl = tc,
     tuneGrid = expand.grid(
       committees = c(1, 5, 10, 50),
       neighbors = c(0, 1, 3, 5, 7, 9))
@@ -215,25 +243,22 @@ mars_model_fun <- function(X, Y) {
     #minspan = 30,  
     #endspan = 30,
     metric = "RMSE",
-    trControl = trainControl(
-      method = "cv", 
-      index = list(1:train_length),
-      indexOut = list((train_length + 1):(train_length + vldn_length))
-    ),
+    trControl = tc,
     tuneGrid = expand.grid(
-      nprune = c(5, 10, 15)
-      ,degree = 1:2)
+      nprune = c(5, 10, 15),
+      degree = 1:2)
   )
 }
 
 ### Put models in a list ###
 model_list <- list(
-  cubist_model = cubist_model_fun,
+  cubist_model = cubist_model_fun_old,
   mars_model = mars_model_fun
   ) %>%
   enframe(name = 'model_name',value = 'model')
 
-### Join models and data ###
+### Join models and data ###  
+# WILL HAVE TO INCLUDE RECIPES HERE
 nested_df <- nested_df %>%
   crossing(model_list)
 
