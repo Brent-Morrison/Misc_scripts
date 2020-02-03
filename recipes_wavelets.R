@@ -44,7 +44,7 @@ step_Haar_new <- function(terms, role, trained, skip, columns, id) {
        trained = trained, skip = skip, columns = columns, id = id)
 }
 
-step_Haar<-function(recipe, ..., role = "predictor", trained = FALSE, skip = FALSE,  
+step_Haar <- function(recipe, ..., role = "predictor", trained = FALSE, skip = FALSE,  
                     columns = NULL, id = rand_id("Harr")) {
   terms = ellipse_check(...)
   add_step(recipe, 

@@ -140,7 +140,7 @@ loops <- floor((nrow(df_data) - (train_length + vldn_length)) / test_length)
 start <- nrow(df_data) - ((loops * test_length) + (train_length + vldn_length)) + 1
 
 # Empty tibble
-nested_df = data.frame()
+nested_df_old = data.frame()
 
 # Loop for time slices
 for (i in seq(start, by = test_length, length.out = loops)) {
@@ -152,11 +152,11 @@ for (i in seq(start, by = test_length, length.out = loops)) {
                          sep = ":"),
       train_test = c(rep("train", (train_length + vldn_length)), rep("test", test_length))
     )
-  nested_df <- bind_rows(nested_df,df) 
+  nested_df_old <- bind_rows(nested_df_old,df) 
 }
 
 # Nest by time slice
-nested_df <- nested_df %>% 
+nested_df_old <- nested_df_old %>% 
   group_by(nest_label, train_test) %>% 
   nest() %>% 
   ungroup() %>% 
@@ -165,25 +165,26 @@ nested_df <- nested_df %>%
     train_X = map(train, ~ as.data.frame(select(., -fwd_rtn_m, -date))),    # fwd_rtn_m to be fcn param
     train_Y = map(train, ~ .x$fwd_rtn_m),                                   # map(train, "fwd_rtn_m"), 
     test_X = map(test, ~ as.data.frame(select(., -fwd_rtn_m))),             # fwd_rtn_m to be fcn param
-    params = map2(train_X, train_Y,  ~ list(X = .x, Y = .y))
+    train_data = map2(train_X, train_Y,  ~ list(X = .x, Y = .y))
   ) %>% 
   select(-train_X, -train_Y)# train_X and train_Y now be dropped
 
-#unnest_test <- unnest(nested_df[28, 7], cols = c(params))
-#unnest_test_X <- unnest(unnest_test[1, 1], cols = c(params))
-#unnest_test_Y <- unnest(unnest_test[2, 1], cols = c(params))
+#unnest_test <- unnest(nested_df_old[28, 7], cols = c(train_data))
+#unnest_test_X <- unnest(unnest_test[1, 1], cols = c(train_data))
+#unnest_test_Y <- unnest(unnest_test[2, 1], cols = c(train_data))
 
 
 #========================================================================================
 #==     Create nested dataframe VERSION 2                                              ==
-#==     and recipe                                                                     ==
+#==     Create recipe                                                                  ==
 #========================================================================================
 
-nested_df_2 <- ts_nest(df_data, fwd_rtn_m, 240,120, 12)
+nested_df <- ts_nest(df_data, fwd_rtn_m, 240, 120, 12)
 
-df_recipe <- recipe(fwd_rtn_m ~ ., data = df_data) %>% 
+norm_recipe <- recipe(fwd_rtn_m ~ ., data = df_data) %>% 
   step_normalize(all_predictors())
 
+bare_recipe <- recipe(fwd_rtn_m ~ ., data = df_data)
 
 #========================================================================================
 #==     Model functions                                                                ==
@@ -235,7 +236,7 @@ cubist_model_fun <- function(X, DATA) {
 # (including intercept) in the pruned model.  
 # Tuning parameter 'minspan' is the minimum number of observations between knots,
 # for three evenly spaced knots for each predictor minspan = -3
-mars_model_fun <- function(X, Y) {
+mars_model_fun_old <- function(X, Y) {
   train(
     x = X,
     y = Y,
@@ -250,21 +251,52 @@ mars_model_fun <- function(X, Y) {
   )
 }
 
+mars_model_fun <- function(X, DATA) {
+  train(
+    x = X,
+    data = DATA,
+    method = "earth",
+    #minspan = 30,  
+    #endspan = 30,
+    metric = "RMSE",
+    trControl = tc,
+    tuneGrid = expand.grid(
+      nprune = c(5, 10, 15),
+      degree = 1:2)
+  )
+}
+
 ### Put models in a list ###
-model_list <- list(
+model_list_old <- list(
   cubist_model = cubist_model_fun_old,
-  mars_model = mars_model_fun
+  mars_model = mars_model_fun_old
   ) %>%
   enframe(name = 'model_name',value = 'model')
 
+# INCLUDE IF_THEN FOR TYPE OF RECIPE FOR TYPE OF MODEL
+# IE., NORMALISE FOR NN AND OTHERWISE FOR MARS/TREE/ETC.
+model_list <- list(
+  cubist_model = cubist_model_fun,
+  mars_model = mars_model_fun
+) %>%
+  enframe(name = 'model_name',value = 'model')
+
 ### Join models and data ###  
-# WILL HAVE TO INCLUDE RECIPES HERE
+nested_df_old <- nested_df_old %>%
+  crossing(model_list_old)
+
+# WILL HAVE TO INCLUDE RECIPES HERE???
 nested_df <- nested_df %>%
   crossing(model_list)
 
 ### Fit models ###
 nested_df <- nested_df %>% 
-  mutate(fitted_model = invoke_map(model, params))
+  mutate(fitted_model = invoke_map(model, train_data))
+
+# Also see here for pmap example
+# https://rpubs.com/erblast/caret
+nested_df_old <- nested_df_old %>% 
+  mutate(fitted_model = invoke_map(model, train_data))
 
 ### Predict ###
 preds <- nested_df %>%
