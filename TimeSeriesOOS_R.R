@@ -184,7 +184,7 @@ nested_df <- ts_nest(df_data, fwd_rtn_m, 240, 120, 12)
 norm_recipe <- recipe(fwd_rtn_m ~ ., data = df_data) %>% 
   step_normalize(all_predictors())
 
-bare_recipe <- recipe(fwd_rtn_m ~ ., data = df_data)
+unch_recipe <- recipe(fwd_rtn_m ~ ., data = df_data)
 
 #========================================================================================
 #==     Model functions                                                                ==
@@ -266,37 +266,61 @@ mars_model_fun <- function(X, DATA) {
   )
 }
 
+nnet_model_fun <- function(X, DATA) {
+  train(
+    x = X,
+    data = DATA,
+    method = "nnet",
+    metric = "RMSE",
+    trControl = tc,
+    tuneGrid = expand.grid(
+      size = c(1, 5, 10),
+      decay = c(0,0.001,0.1))
+  )
+}
+
 ### Put models in a list ###
 model_list_old <- list(
   cubist_model = cubist_model_fun_old,
   mars_model = mars_model_fun_old
   ) %>%
-  enframe(name = 'model_name',value = 'model')
+  enframe(name = 'model_name', value = 'model')
 
 # INCLUDE IF_THEN FOR TYPE OF RECIPE FOR TYPE OF MODEL
 # IE., NORMALISE FOR NN AND OTHERWISE FOR MARS/TREE/ETC.
 model_list <- list(
   cubist_model = cubist_model_fun,
-  mars_model = mars_model_fun
+  mars_model = mars_model_fun,
+  nnet_model = nnet_model_fun
 ) %>%
-  enframe(name = 'model_name',value = 'model')
+  enframe(name = 'model_name', value = 'model')
+
+### Join models and recipes ###
+recipe_list <- list(
+  unch_rec = unch_recipe,
+  norm_rec = norm_recipe
+) %>% 
+  enframe(name = 'recipe_name', value = 'recipe')
+
+model_recipe_list <- model_list %>% 
+  crossing(recipe_list)
 
 ### Join models and data ###  
 nested_df_old <- nested_df_old %>%
   crossing(model_list_old)
 
-# WILL HAVE TO INCLUDE RECIPES HERE???
 nested_df <- nested_df %>%
-  crossing(model_list)
+  crossing(model_recipe_list)
 
-### Fit models ###
-nested_df <- nested_df %>% 
-  mutate(fitted_model = invoke_map(model, train_data))
+### Fit models ###  =========================== UP TO HERE ===========================
 
 # Also see here for pmap example
 # https://rpubs.com/erblast/caret
 nested_df_old <- nested_df_old %>% 
   mutate(fitted_model = invoke_map(model, train_data))
+
+nested_df <- nested_df %>% 
+  mutate(fitted_model = pmap(list(), model, data = train))
 
 ### Predict ###
 preds <- nested_df %>%
