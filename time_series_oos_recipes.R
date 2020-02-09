@@ -3,6 +3,7 @@
 #==      load required data                                                            ==
 #========================================================================================
 
+library("xgboost")
 library("tidyverse")
 library("tidyquant")
 library("earth")
@@ -23,7 +24,6 @@ source("https://raw.githubusercontent.com/Brent-Morrison/Custom_functions/master
 
 econ_fin_data <- readRDS("C:/Users/brent/Documents/R/Misc_scripts/econ_fin_data.Rda")
 sp_shade      <- readRDS("C:/Users/brent/Documents/R/Misc_scripts/sp_shade.Rda")
-
 
 
 #========================================================================================
@@ -127,64 +127,29 @@ df_data <- econ_fin_data %>%
   filter(date > "1961-06-01") %>% 
   as.data.frame()
 
+
+#========================================================================================
+#==     Create nested dataframe with custom function                                   ==
+#==     and create recipes defining model structure, pre-processing                    ==
+#========================================================================================
+
+# Training, validation, testing lengths
 train_length <- 240
 vldn_length <- 120
 test_length <- 12
 
-#========================================================================================
-#==     Create nested dataframe VERSION 1                                              ==
-#==     TODO - update "ts_nest" custom function with code below                        ==
-#========================================================================================
+# Nested df
+nested_df <- ts_nest(df_data, fwd_rtn_m, train_length, vldn_length, test_length)
 
-loops <- floor((nrow(df_data) - (train_length + vldn_length)) / test_length)
-start <- nrow(df_data) - ((loops * test_length) + (train_length + vldn_length)) + 1
+# To unnest for inspection
+# unnest_test <- unnest(nested_df[1, 2], cols = c(train))
 
-# Empty tibble
-nested_df_old = data.frame()
-
-# Loop for time slices
-for (i in seq(start, by = test_length, length.out = loops)) {
-  df <- df_data
-  df <- slice(df, i:(i + train_length + vldn_length + test_length - 1)) %>% 
-    mutate(
-      nest_label = paste(format(strftime(min(date), "%Y-%m")), 
-                         format(strftime(max(date), "%Y-%m")),
-                         sep = ":"),
-      train_test = c(rep("train", (train_length + vldn_length)), rep("test", test_length))
-    )
-  nested_df_old <- bind_rows(nested_df_old,df) 
-}
-
-# Nest by time slice
-nested_df_old <- nested_df_old %>% 
-  group_by(nest_label, train_test) %>% 
-  nest() %>% 
-  ungroup() %>% 
-  pivot_wider(names_from = train_test, values_from = data) %>% 
-  mutate(
-    train_X = map(train, ~ as.data.frame(select(., -fwd_rtn_m, -date))),    # fwd_rtn_m to be fcn param
-    train_Y = map(train, ~ .x$fwd_rtn_m),                                   # map(train, "fwd_rtn_m"), 
-    test_X = map(test, ~ as.data.frame(select(., -fwd_rtn_m))),             # fwd_rtn_m to be fcn param
-    train_data = map2(train_X, train_Y,  ~ list(X = .x, Y = .y))
-  ) %>% 
-  select(-train_X, -train_Y)# train_X and train_Y now be dropped
-
-#unnest_test <- unnest(nested_df_old[28, 7], cols = c(train_data))
-#unnest_test_X <- unnest(unnest_test[1, 1], cols = c(train_data))
-#unnest_test_Y <- unnest(unnest_test[2, 1], cols = c(train_data))
-
-
-#========================================================================================
-#==     Create nested dataframe VERSION 2                                              ==
-#==     Create recipe                                                                  ==
-#========================================================================================
-
-nested_df <- ts_nest(df_data, fwd_rtn_m, 240, 120, 12)
-
+# Recipes
 norm_recipe <- recipe(fwd_rtn_m ~ ., data = select(df_data, -date)) %>% 
   step_normalize(all_predictors())
 
 unch_recipe <- recipe(fwd_rtn_m ~ ., data = select(df_data, -date))
+
 
 #========================================================================================
 #==     Model functions                                                                ==
@@ -199,18 +164,6 @@ tc <- trainControl(
 
 ### Cubist model ###
 # See the plotting functions here https://github.com/erblast/oetteR/
-cubist_model_fun_old <- function(X, Y) {
-  train(
-    x = X,
-    y = Y,
-    method = 'cubist',
-    #metric = "RMSE", can we use huber loss here?
-    trControl = tc,
-    tuneGrid = expand.grid(
-      committees = c(1, 5, 10, 50),
-      neighbors = c(0, 1, 3, 5, 7, 9))
-  )
-}
 
 cubist_model_fun <- function(X, DATA) {
   train(
@@ -225,6 +178,7 @@ cubist_model_fun <- function(X, DATA) {
   )
 }
 
+
 ### MARS model ###
 # Useful explanations 
 # http://rpubs.com/erblast/mars, 
@@ -236,20 +190,6 @@ cubist_model_fun <- function(X, DATA) {
 # (including intercept) in the pruned model.  
 # Tuning parameter 'minspan' is the minimum number of observations between knots,
 # for three evenly spaced knots for each predictor minspan = -3
-mars_model_fun_old <- function(X, Y) {
-  train(
-    x = X,
-    y = Y,
-    method = "earth",
-    #minspan = 30,  
-    #endspan = 30,
-    metric = "RMSE",
-    trControl = tc,
-    tuneGrid = expand.grid(
-      nprune = c(5, 10, 15),
-      degree = 1:2)
-  )
-}
 
 mars_model_fun <- function(X, DATA) {
   train(
@@ -279,61 +219,76 @@ nnet_model_fun <- function(X, DATA) {
   )
 }
 
-### Put models in a list ###
-model_list_old <- list(
-  cubist_model = cubist_model_fun_old,
-  mars_model = mars_model_fun_old
-  ) %>%
-  enframe(name = 'model_name', value = 'model')
+xgb_model_fun <- function(X, DATA) {
+  train(
+    x = X,
+    data = DATA,
+    method = "xgbTree",
+    metric = "RMSE",
+    trControl = tc,
+    # https://xgboost.readthedocs.io/en/latest/parameter.html
+    # https://xgboost.readthedocs.io/en/latest/tutorials/param_tuning.html
+    tuneGrid = expand.grid(
+      nrounds = 1000,
+      max_depth = 3:6,
+      eta = c(0.01, 0.001, 0.0001),
+      gamma = 1,
+      colsample_bytree = c(0.7, 1),
+      min_child_weight = 1,
+      subsample = 1
+      )
+  )
+}
 
-# INCLUDE IF_THEN FOR TYPE OF RECIPE FOR TYPE OF MODEL
-# IE., NORMALISE FOR NN AND OTHERWISE FOR MARS/TREE/ETC.
+### Put models in a list ###
+
 model_list <- list(
   cubist_model = cubist_model_fun,
   mars_model = mars_model_fun,
-  nnet_model = nnet_model_fun
+  #nnet_model = nnet_model_fun,
+  xgb_model = xgb_model_fun
 ) %>%
   enframe(name = 'model_name', value = 'model_object')
 
+
 ### Join models and recipes ###
+
 recipe_list <- list(
-  unch_rec = unch_recipe,
-  norm_rec = norm_recipe
+  unch_rec = unch_recipe#,
+  #norm_rec = norm_recipe
 ) %>% 
   enframe(name = 'recipe_name', value = 'recipe_object')
 
 model_recipe_list <- model_list %>% 
   crossing(recipe_list)
+# INCLUDE IF_THEN FOR TYPE OF RECIPE FOR TYPE OF MODEL
+# IE., NORMALISE FOR NN AND OTHERWISE FOR MARS/TREE/ETC.
+
 
 ### Join models and data ###  
-nested_df_old <- nested_df_old %>%
-  crossing(model_list_old)
 
 nested_df <- nested_df %>%
   crossing(model_recipe_list) %>% 
+  # Place inputs to model in a list in order to use "invoke_map" function
   mutate(data_recipe = map2(recipe_object, train, ~ list(X = .x, DATA = .y))) %>% 
   select(-train)
 
 
-### Fit models ###  =========================== UP TO HERE ===========================
-
-# TESTING
-z1 <- mars_model_fun(unch_recipe, df_data)
-z1$finalModel
+### Fit models ###  
 
 # Also see here for pmap example
 # https://rpubs.com/erblast/caret
 # https://www.alexpghayes.com/blog/implementing-the-super-learner-with-tidymodels/
 # https://konradsemsch.netlify.com/2019/08/caret-vs-tidymodels-comparing-the-old-and-new/
 # https://www.datisticsblog.com/2018/12/tidymodels/#modelling-with-caret
-nested_df_old <- nested_df_old %>% 
-  mutate(fitted_model = invoke_map(model, train_data))
 
 nested_df <- nested_df %>% 
-  #mutate(fitted_model = map2(recipe_object, train, model_object))
   mutate(fitted_model = invoke_map(model_object, data_recipe))
 
 ### Predict ###
+
+# Predict and join actual returns
+
 preds <- nested_df %>%
   transmute(
     nest_label = nest_label,
@@ -342,8 +297,47 @@ preds <- nested_df %>%
     test_start_date = as.Date(paste0(str_sub(nest_label, -7, -1), "-01")) %m-% months(test_length - 1),
     date = map(test_start_date, ~ seq(as.Date(.x), by = "month", length = test_length)),
     pred = map2(fitted_model, test, predict)) %>% 
-  unnest(cols = c(date, pred))
+  unnest(cols = c(date, pred)) %>% 
+  left_join(select(df_data, date, fwd_rtn_m), by = c("date"))
 
+# Scatter plot
+
+ggplot(preds, aes(x = pred, y = fwd_rtn_m)) + 
+  geom_point() +
+  facet_grid(model_name ~ recipe_name)
+
+# Cumulative return plot
+
+
+
+# Variable importance plot
+
+var_importance <- nested_df %>% 
+  select(nest_label, model_name, recipe_name, fitted_model) %>% 
+  mutate(var_imp = map(fitted_model, varImp),
+         var_imp = map(var_imp, ~ .x$importance %>% rownames_to_column())) %>% 
+  select(-fitted_model) %>% 
+  unnest(cols = c(var_imp))
+
+var_importance %>% 
+  filter(model_name == "ggb_model",
+         recipe_name == "unch_rec") %>% 
+  ggplot(aes(x = nest_label, 
+             y = reorder(rowname, Overall), 
+             colour = -Overall, size = Overall)) +
+  geom_point(show.legend = FALSE) +
+  theme_grey() +
+  scale_size(range = c(1, 4)) +
+  labs(title = "Time series of variable importance",
+       subtitle = "Size and shading represents variable importance value",
+       caption = "Source: S&P500 data") +
+  theme(axis.title.x = element_blank(), 
+        axis.title.y = element_blank(),
+        axis.text.y = element_text(size = 8),
+        axis.text.x = element_text(size = 8, angle = 75, vjust = 0.5),
+        axis.ticks = element_blank(),
+        plot.caption = element_text(size = 9, color = "grey55")
+  )
 
 
 #========================================================================================
