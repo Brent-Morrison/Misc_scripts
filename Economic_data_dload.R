@@ -19,7 +19,7 @@ lb = 6                  #  Lookback period
 pc = 0.2                #  Percent drawdown for binary market in/out indicator cutoff
 fr = -0.025             #  Forward return for binary market in/out indicator cutoff
 s.date = as.Date("1945-01-01")
-e.date = as.Date("2019-12-01")
+e.date = as.Date("2020-06-01")
 quandl_api_key("hpbPcsfGudN3viBgh8th")
 qndlm = c("NAHB/NWFHMI.1",  #  NAHB / Wells Fargo National Housing Market Index
           "ISM/MAN_NEWORDERS.5")  #  ISM Manufacturing New Orders Index

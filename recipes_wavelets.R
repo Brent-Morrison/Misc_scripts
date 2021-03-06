@@ -9,6 +9,7 @@
 library("tidyverse")
 library("wavelets")
 library("recipes")
+library("modeldata")
 
 
 ##================================================================================
@@ -18,6 +19,7 @@ library("recipes")
 # Getting data
 data(biomass)
 biomass <- as.data.frame(biomass)
+
 train_biomass <- biomass %>% 
   filter(dataset == "Training") %>% 
   select(-dataset,-sample)
@@ -29,7 +31,7 @@ test_biomass <- biomass %>%
 # Defining custom pretreatment algorithm
 HaarTransform <- function(DF1) {
   w <- function(k) {
-    # Useeither dwt or modwt below
+    # Use either dwt or modwt below
     s1 = modwt(k, filter = "haar")
     return (s1@V[[1]])
   }
@@ -39,21 +41,55 @@ HaarTransform <- function(DF1) {
 }
 
 # Creating the custom step functions
-step_Haar_new <- function(terms, role, trained, skip, columns, id) {
-  step(subclass = "Haar",  terms = terms, role = role, 
-       trained = trained, skip = skip, columns = columns, id = id)
+step_Haar_new <- function(
+  terms, 
+  role, 
+  trained, 
+  skip, 
+  columns, 
+  id
+  ) {
+  step(subclass = "Haar",  
+       terms = terms, 
+       role = role, 
+       trained = trained, 
+       skip = skip, 
+       columns = columns, 
+       id = id)
 }
 
-step_Haar <- function(recipe, ..., role = "predictor", trained = FALSE, skip = FALSE,  
-                    columns = NULL, id = rand_id("Harr")) {
+step_Haar <- function(
+  recipe, 
+  ..., 
+  role = "predictor", 
+  trained = FALSE, 
+  skip = FALSE,  
+  columns = NULL, 
+  id = rand_id("Haar")
+  ) {
   terms = ellipse_check(...)
-  add_step(recipe, 
-           step_Haar_new(terms = terms, role = role, trained = trained,  
-                         skip = skip, columns = columns, id = id))
+  add_step(
+    recipe, 
+    step_Haar_new(
+      terms = terms, 
+      role = role, 
+      trained = trained,  
+      skip = skip, 
+      columns = columns, 
+      id = id
+      )
+    )
 }
 
-prep.step_Haar <- function(x, training, info = NULL, ...) {
-  col_names <- terms_select(terms = x$terms, info = info)
+prep.step_Haar <- function(
+  x, training, 
+  info = NULL, 
+  ...
+  ) {
+  col_names <- terms_select(
+    terms = x$terms, 
+    info = info
+    )
   step_Haar_new(
     terms = x$terms,
     role = x$role,
@@ -64,8 +100,14 @@ prep.step_Haar <- function(x, training, info = NULL, ...) {
   )
 }
 
-bake.step_Haar <- function(object, new_data, ...) {
-  predictors <- HaarTransform(dplyr::select(new_data, object$columns))
+bake.step_Haar <- function(
+  object, 
+  new_data, 
+  ...
+  ) {
+  predictors <- HaarTransform(
+    dplyr::select(new_data, object$columns)
+    )
   new_data[, object$columns] <- NULL
   bind_cols(new_data, predictors)
 }
@@ -78,7 +120,7 @@ Haar_recipe <- recipe(carbon ~ ., train_biomass) %>%
 trained_Haar_recipe <- prep(Haar_recipe, training = train_biomass)
 
 # Apply to the training and test set
-train_data <- bake(trained_Haar_recipe, new_data = train_biomass)
+train_data_modwt <- bake(trained_Haar_recipe, new_data = train_biomass)
 test_data_modwt <- bake(trained_Haar_recipe, new_data = test_biomass)
 
 
@@ -115,7 +157,7 @@ ggplot(
     x = date, 
     y = value, 
     group = 1)
-) +
+  ) +
   geom_line() +
   facet_wrap(~ metric, ncol = 2, scales = "free_y") +
   #scale_y_log10() +
