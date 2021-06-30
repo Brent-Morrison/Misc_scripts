@@ -19,8 +19,8 @@ lb = 6                  #  Lookback period
 pc = 0.2                #  Percent drawdown for binary market in/out indicator cutoff
 fr = -0.025             #  Forward return for binary market in/out indicator cutoff
 s.date = as.Date("1945-01-01")
-e.date = as.Date("2020-06-01")
-quandl_api_key("hpbPcsfGudN3viBgh8th")
+e.date = as.Date("2021-05-01")
+quandl_api_key("")
 qndlm = c("NAHB/NWFHMI.1",  #  NAHB / Wells Fargo National Housing Market Index
           "ISM/MAN_NEWORDERS.5")  #  ISM Manufacturing New Orders Index
 fredd = c("DTB3", "DGS2", "DGS10")
@@ -165,5 +165,5 @@ econ_fin_data <- inner_join(econ_fin_data, sp_5vol, by = "date")
 saveRDS(econ_fin_data, file = "econ_fin_data.Rda")
 saveRDS(sp_shade, file = "sp_shade.Rda")
 
-write_csv(econ_fin_data, path = "econ_fin_data.csv")
-write_csv(sp_shade, path = "sp_shade.csv")
+write_csv(econ_fin_data, file = "econ_fin_data.csv")
+write_csv(sp_shade, file = "sp_shade.csv")
