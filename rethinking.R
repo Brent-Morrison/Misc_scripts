@@ -1,13 +1,31 @@
-# GRID APPROXIMATION ------------------------------------------------------------------------------
-
+# --------------------------------------------------------------------------------------------------------------------------
+#
+# I recently finished reading Statistical Rethinking by McElreath. The reviews are true, it's a great book.  
+# As a bonus, it comes with 20 hours of related lectures on youtube taking you through the content.
+#
+# Statistical Rethinking is an introduction to statistical modelling using Bayesian methods. To distill it 
+# down to a one liner, Bayesian methods give you a distribution for model parameters, in contrast to frequentist
+# methods which produce a point estimate for parameter values.  This can come in handy for expressing uncertainty in 
+# inference or prediction.
+# 
+# As stated in the preface, the book takes the philosophy that you will understand something much better 
+# if you can see it working and implemented in an algorithm, i.e., in code.  The first computational 
+# method introduced is grid approximation. In this post I'm going to look at replicating both the 
+# calculation of log likelihood and grid approximation.
+#
+# GRID APPROXIMATION 
+#
 # We can achieve an excellent approximation of the continuous posterior distribution by considering 
 # only a finite grid of parameter values.  At any particular value of a parameter, it is simple a 
 # matter to compute the posterior probability: just multiply the prior probability OF p by the 
 # likelihood AT p, repeating this procedure for each value in the grid - McElreath p40.
+#
+# --------------------------------------------------------------------------------------------------------------------------
 
 
 
-# RE-PERFORMING EXAMPLE FROM MCELREATH  -----------------------------------------------------------
+
+# RE-PERFORMING EXAMPLE FROM MCELREATH  
 # Fitting normal distribution to data using grid approximation.  This is equivalent to fitting 
 # a regression model that contains only an intercept.
 
@@ -29,9 +47,10 @@ plot(density(d2$age))
 # I'm not the first to look at this, see also:
 # https://poissonisfish.com/2019/05/01/bayesian-models-in-r/ 
 # and here
-# https://rileyking.netlify.app/post/bayesian-modeling-of-censored-and-uncensored-fatigue-data-in-r/
+# https://rileyking.netlify.app/post/bayesian-modeling-of-censored-and-uncensored-fatigue-data-in-r/ 
+# and here https://allendowney.github.io/ThinkBayes2/hospital.html.
 
-# Grid for combinations of mu and sigma for which the log-likelihood is calculated over
+# Create grid for combinations of mu and sigma for which the log-likelihood is calculated over
 mu_list <- seq(from = 150, to = 160, length.out = 100)
 sigma_list <- seq(from = 7, to = 9, length.out = 100)
 post <- expand.grid(mu = mu_list, sigma = sigma_list)
@@ -48,6 +67,7 @@ post <- expand.grid(mu = mu_list, sigma = sigma_list)
 # the value of x assuming the data is normally distributed, and also assuming the mu and sigma parameters 
 # supplied.
 
+# Vectorised using sapply
 post$ll <- sapply(
   X = 1:nrow(post),
   FUN = function(i) sum(dnorm(x = d2$height, mean = post$mu[i], sd = post$sigma[i], log = TRUE))
@@ -117,9 +137,9 @@ sd(data)   # 1.58
 
 # LL1 - calculate log-likelihood, firstly using the exact mean and sd, then with differing means and 
 # standard deviations
-sum(dnorm(x = data, mean = 150, sd = 1.6, log = TRUE)) 
+sum(dnorm(x = data, mean = 150, sd = 1.58, log = TRUE)) 
 sum(dnorm(x = data, mean = 150, sd = 10, log = TRUE))
-sum(dnorm(x = data, mean = 160, sd = 1.6, log = TRUE))
+sum(dnorm(x = data, mean = 160, sd = 1.58, log = TRUE))
 
 # The maximum log-likelihood is returned by the first example using the exact mean and standard deviation.
 # This represents the relative plausibility of seeing the data assuming the parameters - McElreath p 37.
@@ -150,16 +170,19 @@ aggregate(. ~ param_set, data = df[,c('param_set', 'log_lik')], sum)
 
 
 
-
-# AN ALTERNATE DERIVATION OF LOG-LIKELIHOOD -------------------------------------------------------
-
+# --------------------------------------------------------------------------------------------------------------------------
+#
+# AN ALTERNATE DERIVATION OF LOG-LIKELIHOOD 
+#
 # MLE from https://stats.stackexchange.com/questions/112451/maximum-likelihood-estimation-mle-in-layman-terms
-# This calculates the likelihood using a function and then optimises the parameters of that function to 
-# minimise the log-likelihood. This method cannot be used in a bayesian context to calculate posterior
+# This example calculates the likelihood using a function, and then optimises the parameters of that function to 
+# maximse the log-likelihood. This method CANNOT be used in a bayesian context to calculate posterior
 # probabilities since that requires "multiplying the prior probability OF p by the likelihood AT p for any
 # particular value of p" 
+# --------------------------------------------------------------------------------------------------------------------------
 
-# Parameters to retrieve
+
+# Create mock data using parameters to retrieve
 n <- 200
 alpha <- 9
 beta <- 2
@@ -171,14 +194,15 @@ plot(data$x, data$y)
 # The guts of the function (for inspection)
 theta = c(alpha, beta, sigma)
 y = data$y
-X = cbind(1, data$x)  # column of 1's more matrix multiplication
+X = cbind(1, data$x)  # column of 1's for matrix multiplication
 
 n      <- nrow(X)        # 200
 k      <- ncol(X)        # 2
 beta   <- theta[1:k]     # 9 2 
 sigma2 <- theta[k+1]^2   # Convert sd to variance 
 e      <- y - X %*% beta # Matrix multiplication for error
-logl   <- -0.5 * n * log(2*pi) - 0.5 * n * log(sigma2) - ((t(e) %*% e) / (2*sigma2))
+logl   <- -0.5 * n * log(2*pi) - 0.5 * n * log(sigma2) - ((t(e) %*% e) / (2*sigma2)) # IS THIS THE NORMAL DISTRIBUTION
+
 
 # The function itself
 linear.lik <- function(theta, y, X){
@@ -190,6 +214,7 @@ linear.lik <- function(theta, y, X){
   logl   <- -.5*n*log(2*pi)-.5*n*log(sigma2) - ( (t(e) %*% e)/ (2*sigma2) )
   return(-logl)
 }
+
 
 # This is effectively the grid approximation of the likelihood
 surface <- list()
@@ -204,13 +229,16 @@ for(alpha in seq(5, 10, 0.2)){
   }
 }
 
+
 # To dataframe
 surface <- do.call(rbind, surface)
+
 
 # Plot log-likelihood
 library(lattice)
 wireframe(logL ~ beta*sigma, surface, shade = TRUE)
 wireframe(logL ~ alpha*sigma, surface, shade = TRUE)
+
 
 # Find MLE using optimisation
 linear.MLE <- optim(fn=linear.lik, par=c(1,1,1), lower = c(-Inf, -Inf, 1e-8), 
@@ -218,8 +246,10 @@ linear.MLE <- optim(fn=linear.lik, par=c(1,1,1), lower = c(-Inf, -Inf, 1e-8),
                     y=data$y, X=cbind(1, data$x), method = "L-BFGS-B")
 linear.MLE$par
 
+
 # Compare to true parameters
 theta
+
 
 # PARAMETER ESTIMATION USING BASE R LINEAR MODEL
 lm(y ~ x, data = data)
@@ -265,6 +295,13 @@ sum(abs(post2$ll - post$logL))
 
 # Summarise likelihood and posterior over beta
 ll_pr_by_beta <- aggregate(. ~ beta, data = post2, mean)
+
+
+
+
+
+
+
 
 
 
