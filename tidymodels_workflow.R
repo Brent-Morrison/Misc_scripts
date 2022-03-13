@@ -17,16 +17,29 @@ library('lubridate')
 library('mondate')
 library('DescTools')
 library('tidymodels')
-library('ranger')
-library('randomForest')
-library('neuralnet')
-library('nnet')
-library('earth')
+#library('ranger')
+#library('randomForest')
+#library('neuralnet')
+#library('nnet')
+#library('earth')
 library('xgboost')
 library('vip')
 library('reticulate')
 library('romerb')
 
+# Custom theme
+custom_theme1 <- theme_minimal() +
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.9,0.9),
+    legend.background = element_blank(),
+    legend.key = element_blank(),
+    plot.caption = element_text(size = 8, color = "grey55", face = 'italic'), 
+    axis.title.y = element_text(size = 8, color = "darkslategrey"),
+    axis.title.x = element_text(size = 8, color = "darkslategrey"),
+    axis.text.y = element_text(size = 7, color = "darkslategrey"),
+    axis.text.x = element_text(size = 7, color = "darkslategrey")
+  )
 
 # 1. Data ------------------------------------------------------------------------------------------------------------------
 
@@ -43,16 +56,19 @@ df_filter <- df_raw %>%
   mutate(date_char = as.character(date_stamp)) %>%  # Required for stratified sampling, vfold_cv does not accept date
   select(date_stamp, date_char, symbol, amihud_1m:rtn_ari_12m, suv, fwd_rtn_1m) %>% 
   drop_na() %>% 
-  filter(between(fwd_rtn_1m, -0.5, 0.5), date_stamp >= as.Date('2020-06-01'))
+  filter(between(fwd_rtn_1m, -0.5, 0.5), date_stamp >= as.Date('2017-06-01'))
 
+
+# Remove dupes
+df_filter <- df_filter[!duplicated(df_filter[, c('symbol', 'date_stamp')]), ]
 
 # Check dupes
 df_filter %>% group_by(symbol, date_stamp) %>% summarise(n = n()) %>% filter(n > 1)
 
 
 # Train / test parameters
-train_months <- 6
-test_months <- 2                                                # out of sample ##### PARAMETER FOR test_months ######
+train_months <- 18
+test_months <- 4                                                # out of sample ##### PARAMETER FOR test_months ######
 months <- sort(unique(df_filter$date_stamp))
 total_months <- length(months)                                  # this is also the stride
 sample_months <- train_months + test_months                     # length of resultant df
@@ -61,8 +77,9 @@ start_month_idx <- total_months - (test_months * loops) - train_months
 
 
 # Empty list for loop output
-preds_df1_list <- list()
+preds_list <- list()
 var_imp_list <- list()
+tune_metrics_list <- list()
 
 
 # Set model 
@@ -218,19 +235,17 @@ for (i in seq(from = start_month_idx, by = test_months, length.out = loops)) {
   
   # 7.1 Assess stability of model ------------------------------------------------------------------------------------------
   # Export - determine if the different hyperparameter specifications lead to different rmse
-  tune_metrics <- collect_metrics(tune_resamples, summarize = FALSE)
+  tune_metrics <- tune::collect_metrics(tune_resamples, summarize = FALSE)
   
   
   
   # 8. Select best parameters ----------------------------------------------------------------------------------------------
-  # tune_metrics %>% group_by(mtry, tree_depth) %>% summarise(ave_rmse = mean(.estimate)) %>% arrange(ave_rmse)
-  best_param <- select_best(tune_resamples, metric = "rmse")
-  
+  best_param <- tune::select_best(tune_resamples, metric = "rmse")
   
   
   
   # 9. Finalise workflow ---------------------------------------------------------------------------------------------------
-  final_workflow <- finalize_workflow(workflow, best_param)
+  final_workflow <- tune::finalize_workflow(workflow, best_param)
   
   
   
@@ -238,44 +253,49 @@ for (i in seq(from = start_month_idx, by = test_months, length.out = loops)) {
   # Fit the final best model to the training set and evaluate the test set
   
   set.seed(456)
-  final_fit <- last_fit(final_workflow, split) 
+  final_fit <- tune::last_fit(final_workflow, split) 
   
-  preds_df <- collect_predictions(final_fit)
+  preds <- tune::collect_predictions(final_fit)
   
   
   # Join labels to predictions  #### RETURN ####
-  preds_df1 <- bind_cols(preds_df, select(test, symbol, date_stamp))
+  preds <- bind_cols(preds, select(test, symbol, date_stamp))
   
   
   # Extract VI into dataframe  #### RETURN ####
-  var_imp <- final_fit %>% 
-    pluck(".workflow", 1) %>%   
-    pull_workflow_fit() %>%          # this has been deprecated in 0.2.3, use extract_fit_engine()
-    vip::vi()
+  var_imp <- extract_fit_engine(final_fit) %>% vip::vi()
 
-  preds_df1$i <- i                   # Iteration number
-  var_imp$start <- start             # Label start & end date
+  # Label start & end date
+  preds$start <- start
+  preds$end <- end
+  var_imp$start <- start
   var_imp$end <- end
-  preds_df1_list[[i]] <- preds_df1   # add data frame to list
+  tune_metrics$start <- start
+  tune_metrics$end <- end
+
+  # Add data frame to list
+  preds_list[[i]] <- preds
   var_imp_list[[i]] <- var_imp
+  tune_metrics_list[[i]] <- tune_metrics
   
 }
 
 
-# Data frames in list to one data frame
-preds_df1_all <- bind_rows(preds_df1_list)
+# Data frames in list to single data frame
+preds_all <- dplyr::bind_rows(preds_list)
 var_imp_all <- dplyr::bind_rows(var_imp_list)
+tune_metrics_all <- dplyr::bind_rows(tune_metrics_list)
 
 
 # Remove dupes
-preds_df1_all <- preds_df1_all[!duplicated(preds_df1_all[, c('symbol', 'date_stamp')]), ]
-preds_df1_all %>% group_by(symbol, date_stamp) %>% summarise(n = n()) %>% filter(n > 1)
+preds_all <- preds_all[!duplicated(preds_all[, c('symbol', 'date_stamp')]), ]
+preds_all %>% group_by(symbol, date_stamp) %>% summarise(n = n()) %>% filter(n > 1)
 
 
 # MC_TEST ------------------------------------------------------------------------------------------------------------------
 
 # Preds to wide for numpy
-positions <- preds_df1_all %>% 
+positions <- preds_all %>% 
   select(
     date_stamp, 
     symbol, 
@@ -289,15 +309,18 @@ positions <- preds_df1_all %>%
 
 # Ensure columns are in alphabetical order
 sort_cols <- sort(colnames(positions))
-sort_cols<- c('date_stamp', sort_cols[sort_cols != 'date_stamp'])
+sort_cols <- c('date_stamp', sort_cols[sort_cols != 'date_stamp'])
 positions <- positions[, sort_cols]
 positions[is.na(positions)] <- 0
 
 
 # To matrix
 positions_mtrx <- data.matrix(positions[, 2:ncol(positions)], rownames.force = FALSE)
-positions_mtrx[positions_mtrx > 0] <- 1
-positions_mtrx[positions_mtrx <= 0] <- 0
+
+# Assign long indicator (1) if forecast return > zero
+long_filter <- .02
+positions_mtrx[positions_mtrx > long_filter] <- 1
+positions_mtrx[positions_mtrx <= long_filter] <- 0
 
 
 # Prices to wide for numpy
@@ -307,7 +330,7 @@ df_raw <- df_raw[!duplicated(df_raw[, c('symbol', 'date_stamp')]), ]
 # - wide format
 prices <- df_raw %>% select(symbol, date_stamp, close) %>% 
   filter(
-    date_stamp %in% unique(preds_df1_all$date_stamp),
+    date_stamp %in% unique(preds_all$date_stamp),
     symbol %in% colnames(positions)
     ) %>% 
   pivot_wider(
@@ -322,15 +345,13 @@ prices <- prices[, sort_cols]
 na_to_max <- function(x) replace(x, is.na(x), max(x, na.rm = TRUE))
 prices[] <- lapply(prices, na_to_max)
 
-
 # To matrix
 prices_mtrx <- data.matrix(prices[, 2:ncol(prices)], rownames.force = FALSE)
-prices_mtrx1 <- apply(prices_mtrx, 2, max)
-which(prices_mtrx == 0) <- prices_mtrx1
+
 
 # Write to csv for test
-write.csv(positions_mtrx, 'positions_mtrx.csv', col.names = FALSE, row.names = FALSE)
-write.csv(prices_mtrx, 'prices_mtrx.csv', col.names = FALSE, row.names = FALSE)
+#write.csv(positions_mtrx, 'positions_mtrx.csv', col.names = FALSE, row.names = FALSE)
+#write.csv(prices_mtrx, 'prices_mtrx.csv', col.names = FALSE, row.names = FALSE)
 
 
 # Invoke python
@@ -344,7 +365,7 @@ mc_backtest1 = monte_carlo_backtest1(
   prices = prices_mtrx, 
   positions = positions_mtrx, 
   seed_capital = as.integer(100), 
-  max_positions = as.integer(10),
+  max_positions = as.integer(20),
   iter = as.integer(10000)
   )
 
@@ -352,17 +373,41 @@ mc_backtest2 = monte_carlo_backtest1(
   prices = prices_mtrx, 
   positions = positions_mtrx, 
   seed_capital = as.integer(100), 
-  max_positions = as.integer(10),
+  max_positions = as.integer(20),
   iter = as.integer(10000),
   rndm = TRUE
 )
 
-hist(mc_backtest1$cagr, breaks = 25, main = 'CAGR', xlab = '')
-hist(mc_backtest2$cagr, breaks = 25, main = 'Random CAGR', xlab = '')
-hist(mc_backtest1$max_drawdown, breaks = 25, main = 'Drawdown', xlab = '')
-hist(mc_backtest1$volatility, breaks = 25, main = 'Volatility', xlab = '')
+# Join prediction based and random backtest results
+mc_backtest1$src <- rep('pred',nrow(mc_backtest1)) 
+mc_backtest2$src <- rep('rand',nrow(mc_backtest2))
+mc_backtest <- dplyr::bind_rows(mc_backtest1,mc_backtest2)
+mcb_plot_data <- mc_backtest %>% group_by(src) %>% 
+  summarise(
+    median_cagr = median(cagr),
+    median_dd = median(max_drawdown)
+    )
 
+# UPDATE THESE PLOTS WITH PRETTIER GGPLOT GRAPHICS
+#hist(mc_backtest1$cagr, breaks = 25, main = 'CAGR', xlab = '')
+#hist(mc_backtest2$cagr, breaks = 25, main = 'Random CAGR', xlab = '')
+#hist(mc_backtest1$max_drawdown, breaks = 25, main = 'Drawdown', xlab = '')
+#hist(mc_backtest1$volatility, breaks = 25, main = 'Volatility', xlab = '')
 
+mc_backtest %>% 
+  ggplot(aes(x = cagr, fill = src, color = src)) +
+  geom_density(alpha = 0.3) +
+  xlim(min(mc_backtest$cagr), 1) +
+  geom_vline(data = mcb_plot_data, aes(xintercept = median_cagr, colour = src), linetype = "dashed", size = 0.5) + 
+  #coord_cartesian(xlim = c(min(mc_backtest$cagr), 1))
+  custom_theme1
+
+mc_backtest %>% 
+  ggplot(aes(x = max_drawdown, fill = src, color = src)) +
+  geom_density(alpha = 0.3) +
+  xlim(min(mc_backtest$max_drawdown), 0.15) +
+  geom_vline(data = mcb_plot_data, aes(xintercept = median_dd, colour = src), linetype = "dashed", size = 0.5) + 
+  custom_theme1
 
 
 # 11. Scatter plot of actual vs predicted ---------------------------------------------------------
@@ -372,15 +417,15 @@ sen <- function(..., weights = NULL) {
   mblm::mblm(...)
 }
 
-bind_cols(preds_df, select(test, symbol, date_stamp)) %>% 
+preds_all %>% 
   ggplot(aes(x = fwd_rtn_1m, y = .pred)) + 
   geom_point() +
   geom_smooth(method = lm, se = FALSE, size = 0.3, colour = 'blue', linetype = 'twodash') +
-  geom_smooth(method = sen, se = FALSE, size = 0.3, colour = 'grey') +
+  #geom_smooth(method = sen, se = FALSE, size = 0.3, colour = 'grey') +
   facet_wrap(vars(date_stamp), scales = 'free')
 
 # Discretise predictions and visualise
-bind_cols(preds_df, select(test, symbol, date_stamp)) %>% 
+preds_all %>% 
   group_by(date_stamp) %>% 
   mutate(
     pred_tercile = as.factor(ntile(.pred, 3)),
@@ -390,11 +435,10 @@ bind_cols(preds_df, select(test, symbol, date_stamp)) %>%
   ) %>% 
   ungroup() %>% 
   conf_mat(actual_tercile, pred_tercile) %>% 
-  #conf_mat(actual_sign, pred_sign) %>% 
   autoplot(type = 'heatmap')
 
 # Spearmon correlation of actual and predicted returns
-bind_cols(preds_df, select(test, symbol, date_stamp)) %>% 
+preds_all %>% 
   group_by(date_stamp) %>% 
   summarise(spearman_cor = cor(.pred, fwd_rtn_1m, method = 'spearman')) 
   
@@ -403,17 +447,24 @@ bind_cols(preds_df, select(test, symbol, date_stamp)) %>%
 
 
 # 12. Variable importance --------------------------------------------------------------------------------------------------
-# plot
-final_fit %>% 
-  pluck(".workflow", 1) %>%   
-  pull_workflow_fit() %>% 
-  vip(num_features = 7)
+var_imp_summary <- var_imp_all %>% 
+  group_by(Variable) %>% summarise(mean_vi = mean(Importance)) %>% arrange(mean_vi)
 
-# Extract VI into dataframe.  
-var_imp <- final_fit %>% 
-  pluck(".workflow", 1) %>%   
-  pull_workflow_fit() %>%   # this has been deprecated in 0.2.3, use extract_fit_engine()
-  vip::vi()
+var_imp_all %>% 
+  ggplot(aes(x = Importance, y = Variable)) +
+  geom_col() + 
+  scale_y_discrete(limits = var_imp_summary$Variable) +
+  facet_wrap(vars(end), scales = "fixed")
+  
+# TO DO explain interactions
+# https://cran.r-project.org/web/packages/EIX/vignettes/EIX.html
+# https://cran.r-project.org/web/packages/flashlight/vignettes/flashlight.html
+# https://ema.drwhy.ai/
+m <- xgb.model.dt.tree(model = extract_fit_engine(final_fit))
+
+
+# 13. Variability of hyper-parameters ---------------------------------------------------------------------------------------
+
 
 
 
@@ -429,7 +480,10 @@ saveRDS(final_model, file = "C:/Users/brent/Documents/R/R_import/final_model")
 
 loaded_model <- readRDS("C:/Users/brent/Documents/R/R_import/final_model")
 
-loaded_model_preds <- predict(loaded_model, new_data = filter(df_filter,date_stamp == tail(months, n = 1)))
+loaded_model_preds <- predict(
+  loaded_model, 
+  new_data = filter(df_filter,date_stamp == tail(months, n = 1))
+  )
 
 
 
