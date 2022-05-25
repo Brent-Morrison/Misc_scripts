@@ -53,8 +53,27 @@ df_filter <- df_raw %>%
   group_by(symbol) %>% 
   mutate(fwd_rtn_1m = lead((adjusted_close-lag(adjusted_close))/lag(adjusted_close))) %>% 
   ungroup() %>%
+  group_by(sector) %>%
+  mutate(
+    rtn_ari_1m_sct = mean(rtn_ari_1m),
+    rtn_ari_12m_sct = mean(rtn_ari_12m),
+    vol_ari_60d_sct = mean(vol_ari_60d)
+    ) %>% 
+  ungroup() %>% 
+  group_by(industry) %>%
+  mutate(
+    rtn_ari_1m_ind = mean(rtn_ari_1m),
+    rtn_ari_12m_ind = mean(rtn_ari_12m),
+    vol_ari_60d_ind = mean(vol_ari_60d)
+    ) %>% 
+  ungroup() %>% 
   mutate(date_char = as.character(date_stamp)) %>%  # Required for stratified sampling, vfold_cv does not accept date
-  select(date_stamp, date_char, symbol, amihud_1m:rtn_ari_12m, suv, fwd_rtn_1m) %>% 
+  select(
+    date_stamp, date_char, symbol, fwd_rtn_1m,
+    rtn_ari_1m, rtn_ari_1m_sct, rtn_ari_1m_ind,
+    rtn_ari_12m, rtn_ari_12m_sct, rtn_ari_12m_ind,
+    vol_ari_60d, vol_ari_60d_sct, vol_ari_60d_ind
+    ) %>% 
   drop_na() %>% 
   filter(between(fwd_rtn_1m, -0.5, 0.5), date_stamp >= as.Date('2017-06-01'))
 
@@ -67,8 +86,8 @@ df_filter %>% group_by(symbol, date_stamp) %>% summarise(n = n()) %>% filter(n >
 
 
 # Train / test parameters
-train_months <- 18
-test_months <- 4                                                # out of sample ##### PARAMETER FOR test_months ######
+train_months <- 24
+test_months <- 6                                                # out of sample ##### PARAMETER FOR test_months ######
 months <- sort(unique(df_filter$date_stamp))
 total_months <- length(months)                                  # this is also the stride
 sample_months <- train_months + test_months                     # length of resultant df
@@ -106,7 +125,7 @@ xgb_grid <- grid_regular(
 for (i in seq(from = start_month_idx, by = test_months, length.out = loops)) {
   start <- months[i]
   end <- months[i + sample_months - 1]
-  #print(c(start, end))
+  print(c(start, end))
   df <- df_filter %>% filter(between(date_stamp, as.Date(!!start), as.Date(!!end)))
 
 
@@ -364,29 +383,48 @@ source_python('C:/Users/brent/Documents/VS_Code/MC_TEST/MC_TEST/mc_test.py')
 mc_backtest1 = monte_carlo_backtest1(
   prices = prices_mtrx, 
   positions = positions_mtrx, 
-  seed_capital = as.integer(100), 
+  seed_capital = as.integer(10000), 
   max_positions = as.integer(20),
-  iter = as.integer(10000)
+  iter = as.integer(1000)
   )
 
 mc_backtest2 = monte_carlo_backtest1(
   prices = prices_mtrx, 
   positions = positions_mtrx, 
-  seed_capital = as.integer(100), 
+  seed_capital = as.integer(10000), 
   max_positions = as.integer(20),
-  iter = as.integer(10000),
+  iter = as.integer(1000),
   rndm = TRUE
 )
+
 
 # Join prediction based and random backtest results
 mc_backtest1$src <- rep('pred',nrow(mc_backtest1)) 
 mc_backtest2$src <- rep('rand',nrow(mc_backtest2))
-mc_backtest <- dplyr::bind_rows(mc_backtest1,mc_backtest2)
+mc_backtest1$sim_no <- rep(1:nrow(mc_backtest1)) 
+mc_backtest2$sim_no <- rep(1:nrow(mc_backtest2))
+mc_backtest <- dplyr::bind_rows(mc_backtest1[,c(1:3,5)],mc_backtest2[,c(1:3,5)])
+
 mcb_plot_data <- mc_backtest %>% group_by(src) %>% 
   summarise(
     median_cagr = median(cagr),
-    median_dd = median(max_drawdown)
+    median_dd = median(max_drawdown),
+    median_vol = median(volatility)
     )
+
+# Time series of portfolio valuation
+portfolio_valuation <- dplyr::bind_rows(
+  tidyr::unnest(mc_backtest1, portfolio_valuation_ts)[,4:6],
+  tidyr::unnest(mc_backtest2, portfolio_valuation_ts)[,4:6]
+  )
+
+date_seq <- seq(months[start_month_idx], length = loops * test_months, by = "1 month") 
+portfolio_valuation$date_stamp <- rep(date_seq, nrow(portfolio_valuation) / length(date_seq))
+
+# Line plot
+ggplot(data = portfolio_valuation[1:24000,], #[1:24000,], / #[24001:48000,], 
+       aes(x = date_stamp, y = portfolio_valuation_ts, group = sim_no)
+       ) + geom_line(color = "grey")
 
 # UPDATE THESE PLOTS WITH PRETTIER GGPLOT GRAPHICS
 #hist(mc_backtest1$cagr, breaks = 25, main = 'CAGR', xlab = '')
@@ -408,6 +446,14 @@ mc_backtest %>%
   xlim(min(mc_backtest$max_drawdown), 0.15) +
   geom_vline(data = mcb_plot_data, aes(xintercept = median_dd, colour = src), linetype = "dashed", size = 0.5) + 
   custom_theme1
+
+mc_backtest %>% 
+  ggplot(aes(x = volatility, fill = src, color = src)) +
+  geom_density(alpha = 0.3) +
+  xlim(min(mc_backtest$volatility), 0.4) +
+  geom_vline(data = mcb_plot_data, aes(xintercept = median_vol, colour = src), linetype = "dashed", size = 0.5) + 
+  custom_theme1
+
 
 
 # 11. Scatter plot of actual vs predicted ---------------------------------------------------------
@@ -486,6 +532,10 @@ loaded_model_preds <- predict(
   )
 
 
+oos_preds <- bind_cols(
+  df_filter[df_filter$date_stamp == tail(months, n = 1), c('date_stamp', 'symbol')],
+  loaded_model_preds
+  )
 
 
 

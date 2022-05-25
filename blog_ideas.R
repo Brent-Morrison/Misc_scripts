@@ -18,6 +18,9 @@
 
 
 
+
+
+
 # --------------------------------------------------------------------------------------------------------------------------
 #
 # Bayesian network for return forecasting
@@ -313,477 +316,6 @@ str(rf_model)
 
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-#
-# Valuation models using linear regression and multi-level models (frequentist and bayesian)
-# 1. Linear regression over all data
-# 2. Linear regression, independently by individual group
-# 3. Least squares dummy variables (LSDV) by industry
-#
-# --------------------------------------------------------------------------------------------------------------------------
-
-# Libraries
-library(tidyverse)
-library(DBI)
-library(RPostgres)
-library(DescTools)
-library(lubridate)
-library(mblm)
-library(romerb)
-#library(broom)
-
-
-
-# Load data from personal package
-
-data("stock_data")
-fundamental_raw <- stock_data
-rm(stock_data)
-
-
-# Visualise raw data
-
-#hist(data_raw$log_pb)
-#hist(log(data_raw$mkt_cap))
-fundamental_raw %>% 
-  mutate(
-    log_mkt_cap = log(mkt_cap),
-    log_assets = log(total_assets),
-    log_equity_cln = log(-total_equity_cln)
-  ) %>% 
-  pivot_longer(
-    cols = c(log_pb, log_mkt_cap, roe, log_assets, log_equity_cln, leverage),
-    names_to = 'attribute', 
-    values_to = 'value'
-    ) %>% 
-  ggplot(aes(value)) + 
-  geom_histogram(bins = 45) + 
-  facet_wrap(vars(attribute), scales = 'free') +
-  theme_bw()
-
-
-
-# Plot log_pb against roe - all industries
-fundamental_raw %>% 
-  filter(date_stamp == as.Date('2021-06-30')) %>% 
-  ggplot(aes(x = -roe, y = log_pb)) +
-  geom_point(alpha = 0.3) +
-  #stat_smooth(method = 'gam', se = FALSE, formula = y ~ s(x), size = 0.6, colour = 'grey') +
-  geom_smooth(method = lm, se = FALSE, size = 0.3) +
-  labs(
-    title = 'Log book / price ratio versus return on equity',
-    x = 'Return on equity',
-    y = 'Log price / book ratio'
-  ) +
-  theme(
-    plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey", hjust = 0),
-    axis.text.x = element_blank(),
-    axis.text.y = element_blank(),
-    axis.ticks = element_blank()
-  ) +
-  theme_bw()
-
-
-
-# Model coefficients for OLS and Thiel Sen regression
-model_coefs <- fundamental_raw %>% 
-  mutate(roe = -roe) %>% 
-  group_by(date_stamp, sector) %>% 
-  filter(
-    n() > 1,
-    date_stamp == as.Date('2021-06-30')
-    ) %>% 
-  nest() %>% 
-  mutate(
-    fit_ols = map(.x = data, .f = ~lm(log_pb ~ roe, data = .x)),
-    fit_ts = map(.x = data, .f = ~mblm(log_pb ~ roe, data = .x, repeated = TRUE)),
-    int_ols = map_dbl(.x = fit_ols, .f = function(x) coef(summary(x))['(Intercept)', 'Estimate']),
-    slp_ols = map_dbl(.x = fit_ols, .f = function(x) coef(summary(x))['roe', 'Estimate']),
-    int_ts = map_dbl(.x = fit_ts, .f = function(x) coef(summary(x))['(Intercept)', 'Estimate']),
-    slp_ts = map_dbl(.x = fit_ts, .f = function(x) coef(summary(x))['roe', 'Estimate']),
-    x_min = map_dbl(.x = data, .f = ~min(.x$roe)),
-    x_max = map_dbl(.x = data, .f = ~max(.x$roe)),
-    y_min = int_ts + slp_ts * x_min,
-    y_max = int_ts + slp_ts * x_max
-  ) %>% 
-  select(-fit_ols, -fit_ts, -data) %>%
-  ungroup()
-
-
-
-# Plot log_pb against roe - by Industry
-# Includes with-in group (industry) linear regression and Theil Sen robust regression fitted values
-p1 <- fundamental_raw %>% 
-  filter(date_stamp == as.Date('2021-06-30')) %>% 
-  ggplot(aes(x = -roe, y = log_pb)) +
-  facet_wrap(~reorder(sector, as.numeric(sector)), ncol = 4, scales = 'free') + 
-  geom_point(alpha = 0.3) +
-  geom_smooth(method = lm, se = FALSE, size = 0.4) + #, linetype = 'dotted'
-  #geom_abline(  
-  #  aes(intercept = int_ts, slope = slp_ts),
-  #  data = filter(model_coefs, date_stamp == as.Date('2021-06-30'))
-  #) +
-  geom_segment(
-    aes(x = x_min, xend = x_max, y = y_min, yend = y_max),
-    alpha = 0.3,
-    data = filter(model_coefs, date_stamp == as.Date('2021-06-30'))
-  ) +
-  labs(
-    title = 'Log book / price ratio versus return on equity by industry',
-    subtitle = 'Estimated with independent OLS (blue) and independent Theil-Sen (grey)',
-    x = 'Return on equity',
-    y = 'Log price / book ratio'
-  ) +
-  theme(
-    plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey", hjust = 0),
-    axis.text.x = element_blank(),
-    axis.text.y = element_blank(),
-    axis.ticks = element_blank()
-  ) +
-  theme_bw()
-
-p1
-
-
-
-# Plot intercepts and slopes for individual linear models by sector
-plot(
-  x = model_coefs[model_coefs$date_stamp == as.Date('2021-06-30'), ]$int_ols, 
-  y = model_coefs[model_coefs$date_stamp == as.Date('2021-06-30'), ]$slp_ols,
-  xlab = 'intercept',
-  ylab = 'slope',
-  main = 'Intercepts and slopes from individually fit linear regression models'
-) +
-theme_bw()
-text(
-  model_coefs[model_coefs$date_stamp == as.Date('2021-06-30'), ]$int_ols, 
-  model_coefs[model_coefs$date_stamp == as.Date('2021-06-30'), ]$slp_ols,
-  model_coefs[model_coefs$date_stamp == as.Date('2021-06-30'), ]$sector,
-  pos = 4
-)
-
-
-
-# Least squares dummy variables (LSDV) by industry
-# LSDV allows for different intercept for each industry
-library(recipes)
-data <- fundamental_raw %>% 
-  mutate(
-    log_mkt_cap = log(mkt_cap),
-    log_assets = log(total_assets),
-    log_equity_cln = log(-total_equity_cln),
-    roe = -roe,
-    sector = as.factor(sector)
-  ) %>% 
-  filter(date_stamp == as.Date('2021-06-30')) %>% 
-  select(date_stamp, sector, log_pb, log_mkt_cap, roe, log_assets, log_equity_cln, leverage)
-
-rec <- recipe(log_pb ~ roe + sector, data = data)
-
-lsdv_data <- rec %>% step_dummy(sector, keep_original_cols = TRUE) %>% prep(training = data) %>% bake(new_data = NULL)
-
-lsdv_mdl <- lm(log_pb ~ roe + sector_X2 + sector_X3 + sector_X4 + 
-               sector_X5 + sector_X6 + sector_X7 + sector_X8 + 
-               sector_X9 + sector_X10 + sector_X11, 
-               data = lsdv_data)
-
-lsdv_data$pred <- predict(lsdv_mdl)
-
-
-
-# Plot
-p2 <- p1 + 
-  geom_line(aes(x = roe, y = pred), data = lsdv_data, size = 0.3) +
-  labs(subtitle = 'Estimated with independent OLS (blue), independent Theil-Sen (grey) and LSDV (black)') +
-  theme_bw()
-
-p2
-
-
-
-# Plot intercepts and slopes from LSDV model and compare to individual LM 
-# Data prep
-lsdv_mdl_coef <- as.data.frame(coef(lsdv_mdl)) %>% 
-  rownames_to_column(var = 'intercept') %>% 
-  mutate(slope = unname(coef(lsdv_mdl)['roe']))
-lsdv_mdl_coef[1, 1] <- 1
-lsdv_mdl_coef <- lsdv_mdl_coef[lsdv_mdl_coef$intercept != 'roe', ]
-lsdv_mdl_coef$intercept <- as.factor(gsub("[^0-9.]", "",  lsdv_mdl_coef$intercept))
-lsdv_mdl_coef$source <- 'LSDV'
-names(lsdv_mdl_coef)[1:2] <- c('sector','intercept')
-
-lm_mdl_coefs <- model_coefs %>% 
-  filter(date_stamp == as.Date('2021-06-30')) %>% 
-  select(sector, int_ols, slp_ols) %>% 
-  mutate(sector = as.factor(sector), source = 'OLS') %>% 
-  rename(intercept = int_ols, slope = slp_ols)
-
-model_coefs_all <- bind_rows(lsdv_mdl_coef, lm_mdl_coefs)  
-
-
-
-# Plot
-c2 <- model_coefs_all %>% 
-  ggplot(aes(x = intercept, y = slope, colour = source)) +
-  geom_point(alpha = 0.7) + ylim(-1.25, 5.5) +
-  geom_text(aes(label = sector), nudge_x = 0.03, nudge_y = 0.05, size = 3) +
-  labs(
-    title = 'Regression intercept and slope',
-    subtitle = 'Estimated with independent OLS and LSDV',
-    x = 'Intercept',
-    y = 'Slope'
-  ) +
-  theme(
-    plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey", hjust = 0),
-    legend.position = 'bottom', legend.justification = 'centre'
-  ) + 
-  theme_bw()
-
-c2
-
-
-
-# Mixed effects models using lme4
-# lme4 manual:- https://lme4.r-forge.r-project.org/book/
-# lme4 manual:- https://www.chalmers.se/sv/institutioner/math/forskning/forskarutbildning/forskarutbildning-matematisk-statistik/forskarutbildningskurser-matematisk-statistik/Documents/bates_manual.pdf
-# vignette:- https://cran.r-project.org/web/packages/lme4/vignettes/lmer.pdf
-# Doug Bates pres:- http://pages.stat.wisc.edu/~bates/UseR2008/WorkshopD.pdf
-# Example to find lme4 predict coefficients:- https://stats.stackexchange.com/questions/174203/predict-function-for-lmer-mixed-effects-models/174227
-# Various syntax notes:- https://yury-zablotski.netlify.app/post/mixed-effects-models-2/
-# Syntax cs:- https://stats.stackexchange.com/questions/13166/rs-lmer-cheat-sheet
-# Sweep function:- https://stackoverflow.com/questions/3444889/how-to-use-the-sweep-function
-# Plot reference:-https://www.tjmahr.com/plotting-partial-pooling-in-mixed-effects-models/
-# Model diagnostics:- https://www.ssc.wisc.edu/sscc/pubs/MM/MM_DiagInfer.html
-# Shrinkage & correlation:- http://doingbayesiandataanalysis.blogspot.com/2019/07/shrinkage-in-hierarchical-models-random.html
-
-library(lme4)
-
-lme_1_data <- fundamental_raw %>% 
-  filter(date_stamp == as.Date('2021-06-30')) %>% 
-  select(log_pb, roe, sector) %>% 
-  mutate(
-    roe = -roe, 
-    sector = as.factor(sector)
-  )
-
-
-
-# Mixed effects model with fixed and random intercept 
-# Random effect defined with industry sector as the grouping factor
-lme_1 <- lmer(log_pb ~ roe + (1 + roe | sector), data = lme_1_data)
-summary(lme_1)
-coef(lme_1)
-fixef(lme_1)
-ranef(lme_1)
-
-
-
-# Add predicted values for line in scatter plot
-lme_1_data$pred <- predict(lme_1)
-
-p3 <- p2 + 
-  geom_line(aes(x = roe, y = pred), data = lme_1_data, size = 0.4, color = 'black', linetype = 'longdash') + #darkorchid3
-  labs(subtitle = 'Estimated with independent OLS (blue), independent Theil-Sen (grey), LSDV (black) and mixed effects (dashed)') +
-  facet_wrap(~reorder(sector, as.numeric(sector)), ncol = 4, scales = 'free')
-
-p3
-
-
-
-# Plot coefficients - add coefficients to existing plot
-# CHANGE SOURCE TO MODEL
-dat1 = data.frame(
-  sector = rownames(ranef(lme_1)$sector),
-  intercept = unname(coef(lme_1)$sector['(Intercept)']),  # works only for single grouping variable
-  slope = unname(coef(lme_1)$sector['roe']),  # works only for single grouping variable
-  source = rep('Mixed effects1', 11)
-  )
-
-c3 <- c2 +
-  geom_point(data = dat1, aes(x = intercept, y = slope, colour = source), alpha = 0.7) +
-  geom_text(data = dat1, aes(x = intercept, y = slope,label = sector), nudge_x = 0.03, nudge_y = 0.05, size = 3, check_overlap = TRUE) +
-  #geom_path(aes(group = sector, color = NULL), arrow = arrow(length = unit(.02, "npc"))) + 
-  labs(subtitle = 'Estimated with independent OLS, LSDV and Mixed effects')
-c3
-
-# Observation - not a lot of pooling / pulling of parameters to the mean
-
-#library(lattice)
-#library(cowplot)
-#c4 <- qqmath(ranef(lme_1, condVar = TRUE))
-#grid.arrange(c4[[1]], c4[[2]])
-#plot_grid(c4[[1]], c4[[2]], ncol = 1, align = 'v')
-
-
-
-# There is essentially no difference between the mixed model and individual OLS 
-# While this is probably due to the small number of groups (12) and the large amount of
-# data points within each group (EXPLAIN WHY THIS OCCURS - LESS VARIATION B/W GROUPS ETC
-# MAY BE PRUDENT TO GO NEXT LEVEL DOWN - INDUSTRY), 
-# What if the mixed model is estimated with more data, adding all dates pre June.  
-# Specify the model as crossed (as oppose to nested) since each stock is included in each 
-# month and vice versa 
-
-lme_2_data <- fundamental_raw %>% 
-  filter(date_stamp >= as.Date('2021-06-30')) %>% 
-  select(log_pb, roe, sector, date_stamp) %>% 
-  mutate(
-    roe = -roe, 
-    sector = as.factor(sector),
-    month = as.factor(month(date_stamp))
-  )
-
-
-
-# Can the model below be changed so that only a random intercept is included for month, 
-# i.e., exclude the random slope for roe??
-
-lme_2 <- lmer(log_pb ~ roe + (1 + roe | sector) + (1 + roe | month), data = lme_2_data) # crossed syntax
-summary(lme_2)
-coef(lme_2)
-fixef(lme_2)
-ranef(lme_2)
-
-
-
-# Predictions for slope in plot
-
-lme_2_data$pred <- predict(lme_2)
-
-p4 <- p3 +
-  geom_point( 
-    aes(x = roe, y = pred), 
-    data = filter(lme_2_data, date_stamp == as.Date('2021-06-30')), 
-    size = 0.4, color = 'red', shape = 3 #linetype = 'dashed'
-  ) + 
-  labs(subtitle = 'Estimated with independent OLS (blue), independent Theil-Sen (grey), LSDV (black) and mixed effects (dashed)') +
-  facet_wrap(~reorder(sector, as.numeric(sector)), ncol = 4, scales = 'free')
-
-p4
-
-
-
-# Plot coefficients  - add coefficients to existing plot
-# note derivation of coefficients in the plot below - see proof of this derivations further down
-dat2 = data.frame(
-  sector = rownames(ranef(lme_1)$sector),
-  intercept = fixef(lme_2)['(Intercept)'][[1]] + 
-  ranef(lme_2)$sector['(Intercept)'][[1]] +
-  ranef(lme_2)$month['(Intercept)'][6, ],
-  slope = fixef(lme_2)['roe'][[1]] + 
-  ranef(lme_2)$sector['roe'][[1]] +
-  ranef(lme_2)$month['roe'][6, ],
-  source = rep('Mixed effects2',11)
-  )
-
-c4 <- c3 +
-  geom_point(data = dat2, aes(x = intercept, y = slope,  colour = source), alpha = 0.7) +
-  geom_text(data = dat2, aes(x = intercept, y = slope,label = sector), nudge_x = 0.03, nudge_y = 0.05, size = 3, check_overlap = TRUE) +
-  labs(subtitle = 'Estimated with independent OLS, LSDV and Mixed effects')
-c4
-
-
-
-# FYI - extract data from ggplot object
-layer_data(c4, 4)
-
-
-
-# Prove the method for extraction of prediction coefficients, that used in the plot above
-# Derive month 6 coefficients as sum of each grouping factor based on 'coef' function
-
-# Method 1 - from "coef" function
-
-coef_sector <- as.matrix(unname(coef(lme_2)$sector)) # sector coefficients
-rownames(coef_sector)<-NULL  # sector coefficients, remove rownames from matrix
-coef_month6 <- matrix(unlist(unname(coef(lme_2)$month[6, ])), nrow = 1, ncol = 2) # month 6 only coefficients
-coef1 <- sweep(coef_sector, 2, coef_month6, '+') # add month 6 coefs to all sector coefs, see link for sweep function
-
-
-
-# Method 2 - from "fixef" and "ranef" functions
-
-fixef <- matrix(unlist(unname(fixef(lme_2))), nrow = 1, ncol = 2) # sector coefficients
-ranef_sector <- as.matrix(unname(ranef(lme_2)$sector)) # sector coefficients
-rownames(ranef_sector)<-NULL  # remove rownames from matrix
-ranef_month <- matrix(unlist(unname(ranef(lme_2)$month[6, ])), nrow = 1, ncol = 2) # month 6 coefficients
-coef2 <- sweep(ranef_sector, 2, fixef, '+') # add fixed effects and random effects for sector
-coef2 <- sweep(coef2, 2, ranef_month, '+') # take above and add random effect for month
-
-
-
-# Check against coefficients implied from predicted data
-# A linear model applied to the predicted data will return the intercept and slope used in the model
-# deriving that predicted data.
-
-coef3 <- unlist(unname(coef(lm(pred ~ roe, data = lme_2_data[lme_2_data$date_stamp == as.Date('2017-06-30') & lme_2_data$sector == 1, ]))))
-
-library(DT)
-datatable(
-  data.frame(rbind(coef1[1, ], coef2[1, ], coef3), 
-             row.names = c("'coef' function","'fixef' plus 'ranef' functions",'lm result')),
-  colnames = c("Intercept", "Slope"),
-  options = list(dom = 't')
-) %>% formatRound(c("X1", "X2"), 5)
-  
-
-
-# Plot coefficients
-
-coef(lme_2) # Sum of the random and fixed effects for each level
-fixef(lme_2) # Estimates of the fixed-effects coefficients
-ranef(lme_2) # Conditional modes of the random effects
-
-
-
-# Diagnostics - https://www.ssc.wisc.edu/sscc/pubs/MM/MM_DiagInfer.html
-
-plot(lme_2)
-qqnorm(residuals(lme_2))
-
-
-
-# Bayesian model - rethinking p442/493
-library(rethinking)
-
-# Data in Rethinking / McElreath format
-d <- list(
-  log_pb = lme_1_data$log_pb,
-  roe    = lme_1_data$roe,
-  sector = lme_1_data$sector
-  )
-
-set.seed(123)
-m1 <- ulam(
-  alist(
-    
-    # Response distribution
-    log_pb ~ normal(mu, sigma),
-
-    # Linear model
-    mu <- a_sector[sector] + b_sector[sector] * roe,
-    
-    # Variance co-variance matrix prior for intercept and slope
-    c(a_sector, b_sector)[sector] ~ multi_normal(c(a, b), Rho, sigma_sector),
-    a ~ normal(5, 2),
-    b ~ normal(1, 0.5),
-    sigma_sector ~ exponential(1),
-    sigma ~ exponential(1),
-    Rho ~ lkj_corr(2)
-    ),
-  data = d,
-  cores = 4
-  )
-
-precis(m1, depth=2)
-# what is 'sigma_sector[1]' and 'sigma_sector[2]'
-
-summary(m1)
-
-# Use link function (p107)
-m1_post_pred <- link(m1)
-dim(m1_post_pred)
-length(d$log_pb)
 
 
 
@@ -855,9 +387,81 @@ prices <- prices_raw %>%
 
 
 
-# -------------------------------------
+
+
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+#
+# Splines in bayesian multi-level models
+#
+# --------------------------------------------------------------------------------------------------------------------------
+
+library(brms)
+library(dplyr)
+library(tidyr)
+library(romerb)
+
+data("stock_data")
+fundamental_raw <- stock_data
+rm(stock_data)
+
+popn <- fundamental_raw %>% 
+  group_by(sector, symbol) %>% 
+  summarise(tot_vol = sum(volume)) %>% 
+  slice_max(tot_vol, n = 5)
+
+data <- fundamental_raw %>% 
+  filter(
+    symbol %in% popn$symbol,
+    date_stamp > as.Date('2018-12-31')
+    ) %>% 
+  group_by(symbol) %>% 
+  mutate(fwd_rtn_1m = lead((adjusted_close-lag(adjusted_close))/lag(adjusted_close))) %>% 
+  ungroup() %>%
+  mutate(
+    log_mkt_cap = log(mkt_cap),
+    log_assets = log(total_assets),
+    log_equity_cln = log(-total_equity_cln),
+    roe = -roe,
+    sector = as.factor(sector),
+    industry = as.factor(industry)
+  ) %>% 
+  select(
+    symbol, date_stamp, sector, industry, fwd_rtn_1m, rtn_ari_12m, vol_ari_60d
+  ) %>% 
+  drop_na()
+
+m1 <- brm(fwd_rtn_1m ~ t2(rtn_ari_12m, vol_ari_60d) + (1 + symbol), data = data)
+#file:///C:/Users/brent/Downloads/Introduction_BMLMs_brms.pdf (VARYING SLOPE)
+summary(m1)
+cf <- coef(m1) # co-efficients
+ms <- conditional_smooths(m1)
+plot(ms, stype = "contour")
+plot(ms, stype = "raster")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+#
 # 1. Time series of regression slopes
-# -------------------------------------
+#
+# --------------------------------------------------------------------------------------------------------------------------
+
 
 # For Theil Sen regression line in plot.  See - https://stackoverflow.com/questions/48349858/how-can-i-use-theil-sen-method-with-geom-smooth
 sen <- function(..., weights = NULL) {
@@ -1103,3 +707,42 @@ qqplot(qchisq(ppoints(100), df = 3), D2,
        main = expression("Q-Q plot of Mahalanobis" * ~D^2 *
                            " vs. quantiles of" * ~ chi[3]^2))
 abline(0, 1, col = 'gray')
+
+
+
+
+# Bendigo census -----------------------------------------------------------------------------------------------------
+# https://www.abs.gov.au/websitedbs/D3310114.nsf/home/Digital+Boundaries
+# https://dbr.abs.gov.au/
+# https://geopandas.org/en/stable/docs/user_guide/io.html
+# https://geopandas.org/en/stable/gallery/polygon_plotting_with_folium.html
+
+library('data.table')
+
+files <- list(
+  'Bendigo' = 'SA2_202011018',
+  'California Gully - Eaglehawk' = 'SA2_202011019',
+  'East Bendigo - Kennington' = 'SA2_202011020',
+  'Flora Hill - Spring Gully' = 'SA2_202011021',
+  'Kangaroo Flat - Golden Square' = 'SA2_202011022',
+  'Maiden Gully' = 'SA2_202011023',
+  'Strathfieldsaye' = 'SA2_202011024',
+  'White Hills - Ascot' = 'SA2_202011025'
+  )
+
+df_to_list <- list()
+counter <- 1
+for (i in files){
+  url <- paste0('https://dbr.abs.gov.au/json/csv/',i,'.csv')
+  df <- fread(url, header = TRUE)
+  df$location <- names(files)[counter]
+  df$SA2 <- i
+  df_to_list[[i]] <- df
+  counter <- counter + 1
+}
+
+data <- rbindlist(df_to_list)
+
+saveRDS(data, file = 'bendigo_census.rda')
+
+dat <- readRDS('bendigo_census.rda')
