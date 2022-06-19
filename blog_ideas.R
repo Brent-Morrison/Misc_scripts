@@ -324,67 +324,6 @@ str(rf_model)
 
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-#
-# Momentum analysis
-# EDA investigating indicators informing returns of upper 3 decile momentum stocks
-# 1. time series of slope of cross-sectional regression of indicator & 1m fwd returns
-# 2. time series of feature importance and OOS accuracy of random forest model (OOS accuracy being rank correlation
-#    see momentum blog post).  See "tidymodels_workflow.R"
-# 3. timeseries of quintile returns to each factor
-#
-# --------------------------------------------------------------------------------------------------------------------------
-
-library(romerb)
-library(dplyr)
-library(tidyr)
-library(purrr)
-library(slider)
-library(mblm)
-library(ggplot2)
-library(scales)
-
-
-# Data
-data("stock_prices")
-prices_raw <- stock_prices
-rm(stock_prices)
-
-
-# Set default theme
-custom_theme1 <- theme_bw() +
-  theme(
-    legend.title = element_blank(),
-    legend.position = c(0.9,0.9),
-    legend.background = element_blank(),
-    legend.key = element_blank(),
-    plot.caption = element_text(size = 8, color = "grey55", face = 'italic'), 
-    axis.title.y = element_text(size = 8, color = "darkslategrey"),
-    axis.title.x = element_text(size = 8, color = "darkslategrey"),
-    axis.text.y = element_text(size = 7, color = "darkslategrey"),
-    axis.text.x = element_text(size = 7, color = "darkslategrey")
-  )
-
-
-# Data preparation
-prices <- prices_raw %>% 
-  group_by(symbol) %>% 
-  mutate(
-    pos_rtn = if_else(rtn_log_1m > 0, 1, 0),
-    perc_pos_rtn_12m = slide_dbl(pos_rtn, sum, .before = 11, .complete = TRUE) / 12,
-    fwd_rtn_1m = lead((adjusted_close-lag(adjusted_close))/lag(adjusted_close))
-  ) %>% 
-  ungroup() %>% 
-  group_by(date_stamp) %>% 
-  mutate(
-    rtn_ari_12m_dcl = ntile(rtn_ari_12m, 10),
-    across(
-      .names = "qntl_{.col}",
-      .cols = c(amihud_1m:rtn_ari_12m, suv, perc_pos_rtn_12m), 
-      .fns = ~ ntile(.x, 5)
-      )
-  )
-
 
 
 
@@ -677,13 +616,24 @@ cor(a1_scaled, a2_scaled)
 
 
 
-# Mahalanobis distance -----------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+# Mahalanobis distance / GP / Surrogates -----------------------------------------------------------------------------------
+# https://bookdown.org/rbg/surrogates/chap5.html
 # https://www.statestreet.com/content/dam/statestreet/documents/ss_associates/A%20New%20Index%20of%20the%20Business%20Cycle_SSRN-id3521300.pdf
 # https://analyticalsciencejournals.onlinelibrary.wiley.com/doi/pdf/10.1002/cem.2692
 # https://blogs.sas.com/content/iml/2012/02/15/what-is-mahalanobis-distance.html
 # https://blogs.sas.com/content/iml/2012/02/08/use-the-cholesky-transformation-to-correlate-and-uncorrelate-variables.html
+#
+# --------------------------------------------------------------------------------------------------------------------------
 
-
+library(MASS)
+library(plgp)
 library(romerb)
 data("stock_data")
 fundamental_raw <- stock_data
@@ -691,6 +641,31 @@ rm(stock_data)
 
 df <- fundamental_raw[fundamental_raw$symbol %in% c('AAPL','ADBE','GS','JPM','NFG','XOM'), ]
 df <- df[df$date_stamp == as.Date('2021-06-30'), c('asset_growth','roa','roe','leverage')]
+
+# Distance of leverage
+#X <- df$leverage
+n <- 100 #length(X)
+X <- matrix(seq(0, 10, length = n), ncol = 1)
+D <- dist(X, diag = T, upper = T)
+D <-D**2
+D <- as.matrix(D)
+
+D1 <- plgp::distance(X)
+
+D
+D1
+
+# Jitter
+eps <- sqrt(.Machine$double.eps)
+Sigma <- exp(-D) + diag(eps, n)
+Sigma1 <- exp(-D1) + diag(eps, n)
+Sigma
+Sigma1
+
+Y <- MASS::mvrnorm(3, rep(0, n), Sigma)
+
+plot(X, Y, type = 'l')
+matplot(X, t(Y), type = "l", ylab = "Y")
 
 x <- as.matrix(df)
 stopifnot(mahalanobis(x, 0, diag(ncol(x))) == rowSums(x*x))
@@ -708,6 +683,36 @@ qqplot(qchisq(ppoints(100), df = 3), D2,
                            " vs. quantiles of" * ~ chi[3]^2))
 abline(0, 1, col = 'gray')
 
+
+
+#------------
+
+library('data.table')
+
+# https://stats.stackexchange.com/questions/65705/pairwise-mahalanobis-distances
+mahal <- function(x, h=solve(var(x))) {
+  u <- apply(x, 1, function(y) y %*% h %*% y)
+  d <- outer(u, u, `+`) - 2 * x %*% h %*% t(x)
+  #d[lower.tri(d)]
+}
+
+df_raw <- fread('stock_data.csv')
+
+df_mtrx <- as.matrix(df_raw[1:8 ,4:8])
+nrow(df_mtrx)
+ncol(df_mtrx)
+
+dist_mtrx <- mahal(df_mtrx)
+dist_mtrx
+
+
+
+x0 <- MASS::mvrnorm(10 ,1:5, diag(c(seq(1,1/2,l=5)),5))
+dM = as.dist(apply(x0, 1, function(i) mahalanobis(x0, i, cov = cov(x0))))
+dM = as.dist(apply(df_mtrx, 1, function(i) mahalanobis(df_mtrx, i, cov = cov(df_mtrx))))
+dM
+
+             
 
 
 

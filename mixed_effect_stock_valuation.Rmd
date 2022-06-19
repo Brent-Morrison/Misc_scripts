@@ -33,15 +33,17 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error = FAL
 
 <br>
 
-An investigation into stock valuation using regression models.  We will use a couple of different techniques.  Ordinary least squares, multi-levels models (estimated using both frequentist and bayesian approaches), and robust regression.  
+This post will be an exploration of various types of regression models.  The context for this will be assessing stock valuation, and the focus on multi-level models.  
 
-The valuation model is the [P/B - ROE model](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=534442). This model relates the ratio of market capitalisation over book value to return on equity.  We expect that the slope of the regression co-efficient is positive, indicating that holding book value constant, a higher ROE leads to higher valuation.
+The stock valuation model is the [P/B - ROE model](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=534442). This model relates the ratio of market capitalisation over book value to return on equity.  We expect that the slope of the regression co-efficient is positive, indicating that holding book value constant, a higher ROE leads to higher valuation.  
 
-As alluded to in the quotes above, the focus will be on multi-level models.  Why?  Multi-level models purport to provide more robust results by virtue of partial pooling.  Partial pooling results in regularisation of parameter estimates.  Robust regression techniques also purport to provide robust results (it's all in the name isn't it).  Why not see how they compare.   
+Regression techniques assessed will cover linear models estimated using ordinary least squares (on a pooled and un-pooled basis), multi-levels models (estimated using both frequentist and bayesian approaches), and non-parametric robust techniques.  Multi-level models will be extended to account for measurement error in predictor variables, a useful technique that Bayesian estimation allows us to do, and also non-normal link functions.
 
-The Theil-Sen regression, which has been discussed [here](https://brentmorrison.netlify.app/post/abalone-and-outliers/) is a robust technique and works to dampen the impact of outliers.  It does so whereby the slope is derived taking the median of many individual slopes, that being fitted to each pair of data points.
+As alluded to in the quotes above, the focus will be on multi-level models.  Why?  Multi-level models purport to provide robust results by virtue of partial pooling.  Partial pooling results in regularisation of parameter estimates.  Robust regression techniques also purport to provide robust results (it's all in the name isn't it).  We will see how they compare.   
 
-Two approaches that have a similar aim.  It will be interesting to review the difference in fit between models that pool data, and those that use robust techniques.  
+The Theil-Sen regression, which has been discussed [here](https://brentmorrison.netlify.app/post/abalone-and-outliers/) is a robust technique and works to dampen the impact of outliers.  It does so whereby the slope is derived taking the median of many individual slopes, those being fitted to each pair of data points.
+
+Two approaches that have a similar aim but take different routes to model data.  It will be interesting to review the difference in fit between models that pool data and embed an underlying distributional assumption (ADD QUOTE FROM MCELREATH RE NORMAL AFTER CONDITIONING ON PREDICTORS), and those that are non-parametric and use robust techniques.  
 
 ```{r}
 # Libraries
