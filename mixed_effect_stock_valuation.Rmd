@@ -33,15 +33,15 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error = FAL
 
 <br>
 
-This post will be an exploration of various types of regression models.  The context for this will be assessing stock valuation, and the focus on multi-level models.  
+This post will be an exploration of various types of regression models.  The intend is to gain an intuition for different techniques and the context for this will be assessing stock valuation. A particular focus will be on multi-level models and accounting for robustness in the presence of outliers.  
 
-The stock valuation model is the [P/B - ROE model](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=534442). This model relates the ratio of market capitalisation over book value to return on equity.  We expect that the slope of the regression co-efficient is positive, indicating that holding book value constant, a higher ROE leads to higher valuation.  
+The stock valuation model employed is the [P/B - ROE model](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=534442). This model relates the ratio of market capitalisation over book value to return on equity.  We expect that the slope of the regression co-efficient is positive, indicating that holding book value constant, a higher ROE leads to higher valuation.  
 
-Regression techniques assessed will cover linear models estimated using ordinary least squares (on a pooled and un-pooled basis), multi-levels models (estimated using both frequentist and bayesian approaches), and non-parametric robust techniques.  Multi-level models will be extended to account for measurement error in predictor variables, a useful technique that Bayesian estimation allows us to do, and also non-normal link functions.
+Regression techniques assessed will cover linear models estimated using ordinary least squares (on a pooled and un-pooled basis), multi-levels models (estimated using both frequentist and bayesian approaches).  As mentioedn above, on-parametric robust techniques will also get a look in.  Multi-level models will be extended to account for measurement error in predictor variables, a useful technique that Bayesian estimation allows us implement.  We will also model the response with a non-normal link functions, using the Student t distribution to account for fat tailed data points.
 
-As alluded to in the quotes above, the focus will be on multi-level models.  Why?  Multi-level models purport to provide robust results by virtue of partial pooling.  Partial pooling results in regularisation of parameter estimates.  Robust regression techniques also purport to provide robust results (it's all in the name isn't it).  We will see how they compare.   
+As alluded to in the quotes above, and already mentioned, the focus will be on multi-level models.  Why?  Multi-level models purport to provide robust results by virtue of partial pooling.  Partial pooling results in regularisation of parameter estimates.  Robust regression techniques also purport to provide robust results (it's all in the name isn't it).  We will see how they compare.   
 
-The Theil-Sen regression, which has been discussed [here](https://brentmorrison.netlify.app/post/abalone-and-outliers/) is a robust technique and works to dampen the impact of outliers.  It does so whereby the slope is derived taking the median of many individual slopes, those being fitted to each pair of data points.
+The Theil-Sen regression fits the bill for the non-parametric robust technique.  Theil-Sen has been discussed [here](https://brentmorrison.netlify.app/post/abalone-and-outliers/), and is a robust technique that works to dampen the impact of outliers.  It does so whereby the slope is derived taking the median of many individual slopes, those being fitted to each pair of data points.  
 
 Two approaches that have a similar aim but take different routes to model data.  It will be interesting to review the difference in fit between models that pool data and embed an underlying distributional assumption (ADD QUOTE FROM MCELREATH RE NORMAL AFTER CONDITIONING ON PREDICTORS), and those that are non-parametric and use robust techniques.  
 
@@ -85,7 +85,7 @@ def_theme1 <- theme_minimal() +
 
 The data comprises around 750 individual companies.  These companies are grouped into 11 sectors and 40 odd industries.  The data is as of June 2021 and comes from the Securites and Exchange Commission via my [Stock_master](https://github.com/Brent-Morrison/Stock_master) database.
 
-Below are the variables of interest.
+Below are some variables of interest.  Our dependent variable is log_pb, the independent variable is roe.
 
 ```{r}
 data <- fundamental_raw %>% 
@@ -114,6 +114,8 @@ data %>%
   def_theme1
 ```
 
+Some definitions, ```leverage``` is debt over assets, ```log_assets``` is the natural logarithm of total assets, ```log_equity_cln``` is the natural logarithm of total equity when equity is positive and the natural logarithm of 10% of assets when equity is negative, and ```roe``` is return on equity.
+
 
 ## Aggregate analysis  
 
@@ -128,8 +130,8 @@ data %>%
   ggplot(aes(x = roe_s, y = log_pb)) +
   geom_point(alpha = 0.3) +
   stat_smooth(method = 'gam', se = FALSE, formula = y ~ s(x), size = 0.6, colour = 'magenta') +
-  geom_smooth(method = lm, se = FALSE, size = 0.3, color = "#3366FF") +
-  geom_smooth(method = sen, se = FALSE, size = 0.3, colour = 'grey') +
+  geom_smooth(method = lm, se = FALSE, size = 0.6, color = "#3366FF") +
+  geom_smooth(method = sen, se = FALSE, size = 0.6, colour = 'grey') +
   labs(
     title = 'Log book / price ratio versus return on equity',
     x = 'Return on equity',
@@ -144,16 +146,16 @@ data %>%
   def_theme1
 ```
 
-The Theil-Sen regression seems to fit the data better (at least on a rough eyeballing of the plot), fitting the dense cluster of data points more closely. As expected, the slope of the line is positive, indicating all else equal a higher valuation given higher return on equity.  
+The Theil-Sen regression seems to fit the data better (at least on a rough eyeballing of the plot), fitting the dense cluster of data points more closely. As expected, the slope of the line is positive, indicating all else equal, a higher valuation given higher return on equity.  
 
 There is a hint of non-linearity in the relationship.
 
 
-## Sector analysis 1  
+## Unpooled analysis  
 
-Stocks with similar characteristics are grouped into sectors.  
+Stocks with similar characteristics are grouped into sectors.  It is reasonable to expect that sectors may have different characteristics giving rise to differing relationships between ROE and valuation.  Different sectors may have different growth prospects and risk profiles for example. 
 
-The plot below shows the same regression models estimated above (the GAM has been removed), except now applied individually to each sector.  
+With this in mind, the plot below shows the same regression models estimated above (the GAM has been removed), except now applied individually to each sector.  
 ```{r}
 # Model coefficients for OLS and Thiel Sen regression
 model_coefs <- data %>% 
@@ -180,10 +182,10 @@ p1 <- data %>%
   ggplot(aes(x = roe, y = log_pb)) +
   facet_wrap(~reorder(sector, as.numeric(sector)), ncol = 4, scales = 'free') + 
   geom_point(alpha = 0.3) +
-  geom_smooth(method = lm, se = FALSE, size = 0.4, color = "#3366FF") + 
+  geom_smooth(method = lm, se = FALSE, size = 0.6, color = "#3366FF") + 
   geom_segment(
     aes(x = x_min, xend = x_max, y = y_min, yend = y_max),
-    alpha = 0.3,
+    alpha = 0.6,
     data = filter(model_coefs, date_stamp == as.Date('2021-06-30')),
     colour = 'grey40'
   ) +
@@ -202,7 +204,7 @@ Once again we might argue the robust regression fits the data better.  Witness g
 
 <br>
 
-Below, the intercepts and slopes for each of the individual linear models are plotted.  
+Below, the intercepts and slopes for each of the individual linear models presented above are plotted.  
 
 ```{r}
 model_coefs_all <- bind_rows(
@@ -239,7 +241,7 @@ A couple of the OLS models have negative slopes and consistent with the observat
 
 <br>
 
-## Sector analysis 2  
+## Unpooled analysis - LSDV  
 
 We now add a Least Squares Dummy Variable regression.  The plot below is presented with fixed scales to demonstrate the identical slopes that the LSDV structure enforces.  
 
@@ -261,7 +263,7 @@ data$lsvd_pred <- lsdv_data$lsvd_pred
 
 # Plot
 p2 <- p1 + 
-  geom_line(aes(x = roe, y = lsvd_pred), data = lsdv_data, size = 0.3, color = "black") +
+  geom_line(aes(x = roe, y = lsvd_pred), data = lsdv_data, size = 0.6, color = "black") +
   labs(subtitle = 'Estimated with independent OLS (blue), independent Theil-Sen (grey) and LSDV (black)') +
   facet_wrap(~reorder(sector, as.numeric(sector)), ncol = 4, scales = 'fixed') +
   def_theme1
@@ -277,7 +279,7 @@ Intercepts and slopes for individual linear models by sector, and the LSDV model
 
 ```{r}
 lsdv_mdl_coef <- as.data.frame(coef(lsdv_mdl)) %>% 
-  rownames_to_column(var = 'intercept') %>% 
+  tibble::rownames_to_column(var = 'intercept') %>% 
   mutate(slope = unname(coef(lsdv_mdl)['roe']))
 lsdv_mdl_coef[1, 1] <- 1
 lsdv_mdl_coef <- lsdv_mdl_coef[lsdv_mdl_coef$intercept != 'roe', ]
@@ -314,11 +316,11 @@ c2
 ```
 As discussed above, the LSDV model enforces a constant slope across groups and we can see this above.   
 
-## Sector analysis 3
+## Partial pooling
 
-We now look at Multi level models.  The expectation here is that parameters estimated with this model (as compared to independent OLS models) will shrink to a mean as the overall data influences each groups coefficients.  
+We now look at Multi level models.  The expectation here is that parameters estimated with this model (as compared to independent OLS models) will experience shrinkage to a mean as the population data influences each groups coefficients.  
 
-Of interest is the extent to which the shrinkage aligns coeffiencents with the Theil-Sen robust model.  
+Of interest is the extent to which the shrinkage aligns coeffiecents with the Theil-Sen robust model.  
 
 The mixed effects regression line plotted below is estimated with the ```lme4``` package
 
@@ -330,7 +332,7 @@ lme_1 <- lmer(log_pb ~ roe + (1 + roe | sector), data = data)
 data$lme1_pred <- predict(lme_1)
 
 p3 <- p2 + 
-  geom_line(aes(x = roe, y = lme1_pred), data = data, size = 0.4, color = 'magenta2', linetype = 'longdash') + #darkorchid3
+  geom_line(aes(x = roe, y = lme1_pred), data = data, size = 0.6, color = 'magenta2', linetype = 'longdash') + #darkorchid3
   labs(subtitle = 'Estimated with independent OLS (blue), independent Theil-Sen (grey), LSDV (black) \nand Multi level basis (dashed magenta)') +
   facet_wrap(~reorder(sector, as.numeric(sector)), ncol = 4, scales = 'free')
 
@@ -367,7 +369,7 @@ model_coefs_all %>%
 
 Compared to expectation, that was a little underwhelming.  There is essentially no difference between the mixed effects and individual OLS models.  This is probably due to the small number of groups (11) and the large amount of data points within each group.  
 
-EXPLAIN WHY THIS OCCURS - LESS VARIATION B/W GROUPS ETC.  IT MAY BE PRUDENT TO GO NEXT LEVEL DOWN, IE INDUSTRY. 
+Sectors that experienced the most shrinkage (the difference between the independent OLS and Multi-level models) are those that have fewer data points and / or the most extreme (furthest from average) parameter estimates pre shrinkage.  Sector 9 (????) falls into this category.
 
 Note that the model as defined estimates a correlation between the intercept and slope for each sector. 
 
@@ -385,7 +387,7 @@ The intercepts is defined as the outcome (log_pb) when the predictor (roe) is ze
 
 DISCUSS STANDARD DEVIATION AND BETA PRIOR.
 
-```{r}
+```{r, results="hide"}
 # Data in Rethinking / McElreath format
 d <- list(
   log_pb = data$log_pb,
@@ -448,7 +450,7 @@ Here is the plot of the regression.
 ```{r}
 # Plot
 p4 <- p1 + 
-  geom_line(aes(x = roe, y = bayes1_pred), data = data, size = 0.3, colour = 'magenta') +
+  geom_line(aes(x = roe, y = bayes1_pred), data = data, size = 0.6, colour = 'magenta') +
   labs(subtitle = 'Estimated with independent OLS (blue), independent Theil-Sen (grey) \nand Bayesian mixed effects (magenta)') +
   def_theme1
 
@@ -474,11 +476,11 @@ model_coefs_all %>%
   scale_color_manual(values=c("Bayes normal"="black", "TS"="grey40", "Multi level"="magenta2"))
 ```
 
-THE PLOT ABOVE TO SHOW BAYESIAN MULTI LEVEL, FREQUENTIST MIXED AND TS.
+## Bayesian approach - Student t likelihood
 
-Let's re-estimate the bayesian model using tighter priors and a student t likelihood for a more robust approach.  Can we turn those pesky negative slopes positive?
+Let's re-estimate the bayesian model using tighter priors and a student t likelihood for a more robust approach.  Will this model configuration turn those un-intuitive negative slopes positive?
 
-```{r}
+```{r, results="hide"}
 # Data in Rethinking / McElreath format
 set.seed(123)
 bayes2 <- ulam(
@@ -534,13 +536,13 @@ p5 <- data %>%
   ggplot(aes(x = roe, y = log_pb)) +
   facet_wrap(~reorder(sector, as.numeric(sector)), ncol = 4, scales = 'free') + 
   geom_point(alpha = 0.3) +
-  geom_line(aes(x = roe, y = bayes1_pred), data = data, size = 0.3, colour = 'blue') +
-  geom_line(aes(x = roe, y = bayes2_pred), data = data, size = 0.3, colour = 'green') +
+  geom_line(aes(x = roe, y = bayes1_pred), data = data, size = 0.6, colour = 'blue') +
+  geom_line(aes(x = roe, y = bayes2_pred), data = data, size = 0.6, colour = 'green') +
   geom_segment(
     aes(x = x_min, xend = x_max, y = y_min, yend = y_max),
     alpha = 0.3,
     data = filter(model_coefs, date_stamp == as.Date('2021-06-30')),
-    colour = 'grey40', size = 0.3
+    colour = 'grey40', size = 0.6
   ) +
   labs(
     title = 'Log book / price ratio versus return on equity by industry',
@@ -564,7 +566,7 @@ model_coefs_all %>%
   geom_text(aes(label = sector), nudge_x = 0.03, nudge_y = 0.05, check_overlap = TRUE, show.legend = FALSE, size = 3) +
   labs(
     title = 'Regression intercept and slope',
-    subtitle = 'Estimated with independent TS and Bayesian multi level (student & normal)l',
+    subtitle = 'Estimated with independent TS and Bayesian multi level (student & normal)',
     x = 'Intercept',
     y = 'Slope'
   ) +
@@ -572,13 +574,17 @@ model_coefs_all %>%
   scale_color_manual(values=c("Bayes normal"="blue", "Bayes student"="green", "TS"="grey40", "Multi level"="magenta2"))
 ```
 
+Using the Student t distribution does not result in drastically different slope estimates.  It may have reduced uncertainty (remember that is something we get with bayesian estimation) but we are not looking at that here.  
+
 <br>
 
-## Bayesian model with measurement error  
+## Bayesian model with measurement error (student t) 
 
-Model per McElreath p 493.
+We now attempt to account for measurement error in the price to book ratio. We know that stock prices are more volatile than the underlying fundamentals (INSERT LINK REFERENCE).  It is reasonable to expect that any measurement error or random noise in this ratio scales with the volatility of the underlying stock price.
 
-```{r}
+The model that follows is based on that per McElreath's text (p 493) and considers the true underlying P/B ratio is a function of the observed ratio and an error component that scales with trailing volatility.
+
+```{r, results="hide"}
 # Data in Rethinking / McElreath format
 set.seed(123)
 bayes3 <- ulam(
@@ -657,66 +663,24 @@ model_coefs_all %>%
   scale_color_manual(values=c("Bayes normal"="blue", "Bayes student"="green", "Bayes student me"="red", "TS"="grey40"))
 ```
 
+OK.  Once again, not a large deviation in slope estimates across different techniques.  EXPAND COMMENTARY
+
 <br>
 
 
-### Industry level
+### Summary
 
-Lastly, we will look at a mixed model with to levels of nesting (this is where the hierarchical term comes from).
+WHAT WASN'T DONE AND COULD BE DONE.
 
-TO DO - Nested by sector and industry, individual OLS, TS, bayes mixed and freq mixed
+NOTE RE MISSING PREDICTORS
 
-
-## Appendix 
-
-### Model in ```brms```
-```{r}
-b1 <- 
-  brm(
-    data = d, 
-    family = student,
-    #log_pb ~ 1 + roe + (1 + roe || sector),
-    log_pb | se(vol, sigma = TRUE) ~ 1 + roe + (1 + roe || sector),
-    prior = c(
-      prior(normal(5, 2), class = Intercept),
-      prior(normal(-1, 0.5), class = b),
-      prior(exponential(1), class = sd),
-      prior(exponential(1), class = sigma), 
-      prior(gamma(2, 0.1), class = nu)
-      #prior(lkj(2), class = cor)     not required as correlation not being modeled
-      ),
-    iter = 2000, warmup = 1000, chains = 4, cores = 4,
-  )
-
-# Coefficients
-b1_coef <- coef(b1)
-b1_coef_df <- data.frame(b1_coef)
-b1_coef_df$sector <- as.factor(rownames(b1_coef_df))
-b1_coef_df$source <- rep('Bayes student me (no correlation)', 11) 
-b1_coef_df <-b1_coef_df[, c('sector', 'sector.Estimate.Intercept', 'sector.Estimate.roe', 'source')]
-colnames(b1_coef_df) = c("sector", "intercept", "slope", "source")
-model_coefs_all <- bind_rows(model_coefs_all, b1_coef_df) 
-#model_coefs_all <- model_coefs_all[-c(89:110), ]
-```
+THE ABOVE IGNORES PARAMETER ESTIMATE UNCERTAINTY FOR BAYESIAN MODELS
 
 
-```{r}
-model_coefs_all %>% 
-  filter(source %in% c('Bayes student me (no correlation)','Bayes student me')) %>% 
-  ggplot(aes(x = intercept, y = slope, colour = source)) +
-  geom_point(alpha = 0.7) + ylim(-1.25, 5.5) +
-  geom_text(aes(label = sector), nudge_x = 0.03, nudge_y = 0.05, check_overlap = TRUE, show.legend = FALSE, size = 3) +
-  labs(
-    title = 'Regression intercept and slope',
-    subtitle = 'Estimated with Bayesian multi level student t \nlikelihood (correlation and no correlation - brms)',
-    x = 'Intercept',
-    y = 'Slope'
-  ) +
-  def_theme1 +
-  scale_color_manual(values=c("Bayes student me (no correlation)"="blue", "Bayes student me"="magenta2"))
-```
 
-None of the above has communicated uncertainty around parameters for the bayesian models
+
+
+
 
 ## References
 

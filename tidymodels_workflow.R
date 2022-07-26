@@ -3,7 +3,7 @@
 #
 # Tidymodels work flow
 # 
-# Information based - random forest / xgboost - classification / regression
+# Information based - random forest / xgboost
 # Similarity based  - knn / kernal regression
 # Probability based - naive bayes / bayesian network
 # Error based - neural network / logistic regression
@@ -469,40 +469,44 @@ date_seq <- unique(preds_all$date_stamp)
 portfolio_valuation$date_stamp <- rep(date_seq, nrow(portfolio_valuation) / length(date_seq))
 
 # Line plot
-ggplot(data = portfolio_valuation,#[24001:48000,], #[1:24000,], / #[24001:48000,], 
+# TO DO - ADD AVERAGE PORTFOLIO VALUATION & S&P500 RETURNS TO THIS PLOT
+ggplot(data = portfolio_valuation,
        aes(x = date_stamp, y = portfolio_valuation_ts, group = sim_no)
        ) + geom_line(color = "grey", size = .0001) +
   ylim(0, 3e4) +
   geom_abline(intercept = 10000, slope = 0, linetype = "dashed", size = 0.5) +
   facet_grid(cols = vars(src), scales = 'fixed')
 
-# UPDATE THESE PLOTS WITH PRETTIER GGPLOT GRAPHICS
-#hist(mc_backtest1$cagr, breaks = 25, main = 'CAGR', xlab = '')
-#hist(mc_backtest2$cagr, breaks = 25, main = 'Random CAGR', xlab = '')
-#hist(mc_backtest1$max_drawdown, breaks = 25, main = 'Drawdown', xlab = '')
-#hist(mc_backtest1$volatility, breaks = 25, main = 'Volatility', xlab = '')
-z<-mc_backtest1#[1:5,5:8]
-z1<-unnest(data = z,col = c(pstn_idx,pstn_qty))
-z1$date_stamp <- rep(date_seq, max(z1$sim_no))
-z2<-unnest(data = z1, col = c(pstn_idx, pstn_qty))
-#z2$pstn_idx <- z2$pstn_idx + 1 # python zero index to R 1index
 
-cols_df <- data.frame(idx = 0:(ncol(positions_mtrx)), symbol = c(colnames(positions_mtrx),'cash'))
-z2 <- dplyr::left_join(z2, cols_df, by = c('pstn_idx' = 'idx'))
-# Data for join
-pr <- df_raw[,1:4]
-ca <- data.frame(
-  symbol=rep('cash',length(date_seq)), 
-  date_stamp = date_seq,
-  close = rep(1,length(date_seq)),
-  adjusted_close = rep(1,length(date_seq))
+# Create data frame containing positions for each date for each simulation
+positions_df <- unnest(data = mc_backtest2[ ,5:8], col = c(pstn_idx, pstn_qty))
+positions_df$date_stamp <- rep(date_seq, max(positions_df$sim_no))
+positions_df <- unnest(data = positions_df, col = c(pstn_idx, pstn_qty))
+
+# Data frame of symbols to join to (note Python zero index configuration)
+symbols_df <- data.frame(idx = 0:(ncol(positions_mtrx)), symbol = c(colnames(positions_mtrx),'cash'))
+
+# Join positions index to symbol
+positions_df <- dplyr::left_join(positions_df, symbols_df, by = c('pstn_idx' = 'idx'))
+
+# Data price data for joining to positions
+prices <- rbind(
+  # Cash
+  data.frame(
+    symbol=rep('cash',length(date_seq)), 
+    date_stamp = date_seq,
+    close = rep(1,length(date_seq)),
+    adjusted_close = rep(1,length(date_seq))
+    ), 
+  # Stock prices
+  df_raw[ ,1:4]
   )
-vl <- rbind(pr, ca)
-z2 <- dplyr::left_join(z2, vl, by = c('symbol' = 'symbol', 'date_stamp' = 'date_stamp'))
-z2$vltn <- z2$adjusted_close * z2$pstn_qty
-z2 <-z2 %>% group_by(date_stamp, sim_no) %>% mutate(date_vltn = sum(vltn, na.rm = TRUE))
-z3 <-z2 %>% group_by(date_stamp, sim_no) %>% summarise(date_vltn = sum(vltn, na.rm = TRUE))
-# this should agree to portfoio_valuation
+
+positions_df <- dplyr::left_join(positions_df, prices, by = c('symbol' = 'symbol', 'date_stamp' = 'date_stamp'))
+positions_df$vltn <- positions_df$adjusted_close * positions_df$pstn_qty
+positions_df <- positions_df %>% group_by(date_stamp, sim_no) %>% mutate(date_vltn = sum(vltn, na.rm = TRUE))
+portfolio_valuation_check <- positions_df %>% group_by(date_stamp, sim_no) %>% summarise(date_vltn = sum(vltn, na.rm = TRUE))
+# this should agree to portfolio_valuation
 
 
 

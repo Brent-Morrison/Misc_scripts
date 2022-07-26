@@ -639,34 +639,63 @@ data("stock_data")
 fundamental_raw <- stock_data
 rm(stock_data)
 
-df <- fundamental_raw[fundamental_raw$symbol %in% c('AAPL','ADBE','GS','JPM','NFG','XOM'), ]
-df <- df[df$date_stamp == as.Date('2021-06-30'), c('asset_growth','roa','roe','leverage')]
+#df <- fundamental_raw[fundamental_raw$symbol %in% c('AAPL','ADBE','GS','JPM','NFG','XOM'), ]
+#df <- df[df$date_stamp == as.Date('2021-06-30'), c('asset_growth','roa','roe','leverage')]
+
+df <- fundamental_raw[fundamental_raw$sector == 7, ]
+df$log_mkt_cap <- log(df$mkt_cap)
+df <- df[df$date_stamp == as.Date('2021-06-30'), c('log_mkt_cap','log_pb','roe','leverage')]
+
 
 # Distance of leverage
-#X <- df$leverage
-n <- 100 #length(X)
-X <- matrix(seq(0, 10, length = n), ncol = 1)
+#X <- df1[order(df1$log_mkt_cap, df1$log_pb, df1$roe, df1$leverage), ]
+X <- sort(df$log_mkt_cap)
+#X <- matrix(seq(0, 10, length = 100), ncol = 1)
+n <- length(X)
+#n <- nrow(X)
 D <- dist(X, diag = T, upper = T)
-D <-D**2
+D <- D**2
 D <- as.matrix(D)
+eps <- sqrt(.Machine$double.eps)
+sigma <- exp(-D) + diag(eps, n)
+Y <- MASS::mvrnorm(n = 3, mu = rep(0, n), Sigma = sigma)
 
+# Plot
+matplot(X, t(Y), type = 'l')
+
+# Compare to plgp::distance()
 D1 <- plgp::distance(X)
+sum(D - D1) == 0
 
-D
-D1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # Jitter
 eps <- sqrt(.Machine$double.eps)
-Sigma <- exp(-D) + diag(eps, n)
-Sigma1 <- exp(-D1) + diag(eps, n)
-Sigma
-Sigma1
+sigma <- exp(-D) + diag(eps, n)
+sigma1 <- exp(-D1) + diag(eps, n)
+sigma
+sigma1
 
-Y <- MASS::mvrnorm(3, rep(0, n), Sigma)
+Y <- MASS::mvrnorm(n = 3, mu = rep(0, n), Sigma = sigma)
 
 plot(X, Y, type = 'l')
 matplot(X, t(Y), type = "l", ylab = "Y")
 
+# Use mahalanobis distance for covariance matrix
 x <- as.matrix(df)
 stopifnot(mahalanobis(x, 0, diag(ncol(x))) == rowSums(x*x))
 ##- Here, D^2 = usual squared Euclidean distances
@@ -712,7 +741,48 @@ dM = as.dist(apply(x0, 1, function(i) mahalanobis(x0, i, cov = cov(x0))))
 dM = as.dist(apply(df_mtrx, 1, function(i) mahalanobis(df_mtrx, i, cov = cov(df_mtrx))))
 dM
 
-             
+
+
+
+#------------
+devtools::install_github("aashen12/TBASS")
+library('TBASS')
+
+d <- matrix(runif(2000, min = -1, max = 1), ncol = 20)
+D <- expand.grid(sort(d[,1]), sort(d[,2]))
+y <- D[,1] + sin(D[,2])
+#y <- d[,1] + sin(d[,2]) + log(abs(d[,3])) + d[,4] ^ 2 + d[,5] * d[,6] +
+#  I(d[,7] * d[,8] * d[,9] < 0) + I(d[,10] > 0) + d[,11] * I(d[,11] > 0) + sqrt(abs(d[,12])) +
+#  cos(d[,13]) + 2 * d[,14] + abs(d[,15]) + I(d[,16] < -1) + d[,17] * I(d[,17] < -1) - 2 * d[,18] -
+#  d[,19] * d[,20]
+
+persp(sort(d[,1]), sort(d[,2]), matrix(y, ncol=100), theta=-30, phi=30, xlab="x1", ylab="x2", zlab="y")
+
+plot(d[,1], y, type="p")
+plot(d[,2], y, type="p")
+
+
+
+x1 <- seq(min(d[,1]), max(d[,1]), length = length(y))
+y1 <- seq(min(d[,2]), max(d[,2]), length = length(y))
+
+persp(x1 , y1, z = y)
+
+# ----
+library(plgp)
+library(mvtnorm)
+nx <- 20
+x <- seq(0, 2, length=nx)
+X <- expand.grid(x, x) # 400
+D <- distance(X)
+eps <- sqrt(.Machine$double.eps)
+Sigma <- exp(-D) + diag(eps, nrow(X))
+Y <- rmvnorm(2, sigma=Sigma)  # 400 by 400
+persp(x, x, matrix(Y[1,], ncol=nx), theta=-30, phi=30, xlab="x1", ylab="x2", zlab="y")
+persp(x, x, matrix(Y[2,], ncol=nx), theta=-30, phi=30, xlab="x1", ylab="x2", zlab="y")
+
+
+
 
 
 
