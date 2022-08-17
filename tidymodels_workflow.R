@@ -73,7 +73,8 @@ df_features <- df_raw %>%
     rtn_ari_1m, rtn_ari_1m_sct, rtn_ari_1m_ind,
     rtn_ari_12m, rtn_ari_12m_sct, rtn_ari_12m_ind,
     vol_ari_60d, vol_ari_60d_sct, vol_ari_60d_ind
-  ) 
+  ) %>% 
+  ungroup()
 
 # Sample
 #set.seed(234)
@@ -83,6 +84,7 @@ df_features <- df_raw %>%
 
 # Model training / testing
 df_model_in <- df_features %>% 
+  select(-industry) %>% 
   filter(
     date_stamp < max(df_features$date_stamp),
     between(fwd_rtn_1m, -0.5, 0.5),
@@ -103,7 +105,7 @@ df_model_in %>% group_by(symbol, date_stamp) %>% summarise(n = n()) %>% filter(n
 
 
 # Train / test parameters
-train_months <- 24                                                                                       #### PARAMETER ####
+train_months <- 36                                                                                       #### PARAMETER ####
 test_months <- 6                                                # out of sample test_months              #### PARAMETER ####
 months <- sort(unique(df_model_in$date_stamp))
 total_months <- length(months)                                  # this is also the stride
@@ -134,7 +136,7 @@ xgb_grid <- grid_regular(
   mtry(range = c(5, 9)), 
   #min_n(range = c(6, 8)),
   tree_depth(range = c(3, 7)),
-  levels = 3
+  levels = 2
 )
 
 
@@ -260,7 +262,7 @@ for (i in seq(from = start_month_idx, by = test_months, length.out = loops)) {
   
   # 7. Fit re-samples -------------------------------------------------------------------------------
   
-  tune_resamples <- tune_grid(
+  tune_resamples <- tune::tune_grid(
     object = workflow, 
     resamples = resamples,
     grid = xgb_grid,                                                                     # set grid here #### PARAMETER ####
@@ -364,7 +366,7 @@ positions_mtrx <- data.matrix(positions[, 2:ncol(positions)], rownames.force = F
 # Replace na's with zero
 positions_mtrx[is.na(positions_mtrx)] <- 0
 
-# Assign long indicator (1) if forecast return > x (fixed) OR if in top quantile (relative)  
+# Assign long indicator (1) if forecast return > x ('fixed') OR if in top quantile ('relative')  
 position_entry_method <- 'fixed'                                                                         #### PARAMETER ####
 long_filter <- .02                                                                                       #### PARAMETER ####
 qtle_thres <- 0.8                                                                                        #### PARAMETER ####
@@ -414,12 +416,12 @@ prices <- prices %>% fill(everything(), .direction = 'downup')
 prices_mtrx <- data.matrix(prices[, 2:ncol(prices)], rownames.force = FALSE)
 
 
-# Invoke python
+# Invoke python -----------------------------------------------------------------------------------
 # https://community.rstudio.com/t/reticulate-source-python-import-modules/8355/3
+
 use_condaenv(condaenv = 'MC_TEST', required = TRUE)
 import_from_path("mc_test", path = 'C:/Users/brent/Documents/VS_Code/MC_TEST/MC_TEST/')
 source_python('C:/Users/brent/Documents/VS_Code/MC_TEST/MC_TEST/mc_test.py')
-
 
 mc_backtest1 = monte_carlo_backtest1(
   prices = prices_mtrx, 
@@ -453,33 +455,20 @@ mcb_plot_data <- mc_backtest %>% group_by(src) %>%
     median_vol = median(volatility)
     )
 
-# Time series of portfolio valuation
+
+# Time series of portfolio valuation --------------------------------------------------------------
 portfolio_valuation <- dplyr::bind_rows(
   tidyr::unnest(mc_backtest1, portfolio_valuation_ts)[,c(4,7:8)],
   tidyr::unnest(mc_backtest2, portfolio_valuation_ts)[,c(4,7:8)]
   )
 
 date_seq <- unique(preds_all$date_stamp)
-  #seq(
-  #floor_date(months[start_month_idx], 'months') %m+% months(1), 
-  #length = loops * test_months, 
-  #by = "1 month"
-  #) - 1
 
 portfolio_valuation$date_stamp <- rep(date_seq, nrow(portfolio_valuation) / length(date_seq))
 
-# Line plot
-# TO DO - ADD AVERAGE PORTFOLIO VALUATION & S&P500 RETURNS TO THIS PLOT
-ggplot(data = portfolio_valuation,
-       aes(x = date_stamp, y = portfolio_valuation_ts, group = sim_no)
-       ) + geom_line(color = "grey", size = .0001) +
-  ylim(0, 3e4) +
-  geom_abline(intercept = 10000, slope = 0, linetype = "dashed", size = 0.5) +
-  facet_grid(cols = vars(src), scales = 'fixed')
 
-
-# Create data frame containing positions for each date for each simulation
-positions_df <- unnest(data = mc_backtest2[ ,5:8], col = c(pstn_idx, pstn_qty))
+# Time series of portfolio valuation (positions for each date for each simulation) ----------------
+positions_df <- unnest(data = mc_backtest1[ ,5:8], col = c(pstn_idx, pstn_qty))
 positions_df$date_stamp <- rep(date_seq, max(positions_df$sim_no))
 positions_df <- unnest(data = positions_df, col = c(pstn_idx, pstn_qty))
 
@@ -497,16 +486,47 @@ prices <- rbind(
     date_stamp = date_seq,
     close = rep(1,length(date_seq)),
     adjusted_close = rep(1,length(date_seq))
-    ), 
+  ), 
   # Stock prices
   df_raw[ ,1:4]
-  )
+)
 
 positions_df <- dplyr::left_join(positions_df, prices, by = c('symbol' = 'symbol', 'date_stamp' = 'date_stamp'))
 positions_df$vltn <- positions_df$adjusted_close * positions_df$pstn_qty
 positions_df <- positions_df %>% group_by(date_stamp, sim_no) %>% mutate(date_vltn = sum(vltn, na.rm = TRUE))
 portfolio_valuation_check <- positions_df %>% group_by(date_stamp, sim_no) %>% summarise(date_vltn = sum(vltn, na.rm = TRUE))
-# this should agree to portfolio_valuation
+# This should agree to portfolio_valuation
+
+
+# Line plot
+# TO DO - ADD AVERAGE PORTFOLIO VALUATION & S&P500 RETURNS TO THIS PLOT
+portfolio_agg_rtn <- diff(prices_mtrx) / prices_mtrx[-nrow(prices_mtrx),]
+portfolio_agg_rtn[portfolio_agg_rtn == 0] <- NA 
+portfolio_agg_rtn <- rowMeans(portfolio_agg_rtn, na.rm = TRUE)
+portfolio_agg_val <- cumprod(1 + c(9999, portfolio_agg_rtn))
+portfolio_agg_val <- data.frame(
+  date_stamp = rep(date_seq, 2), 
+  agg_val = rep(portfolio_agg_val, 2), 
+  src = c(rep('pred', length(date_seq)),rep('rand', length(date_seq))),
+  sim_no = c(rep('pred', length(date_seq)),rep('rand', length(date_seq)))
+  )
+
+ggplot(
+  data = portfolio_valuation,
+  aes(x = date_stamp, y = portfolio_valuation_ts, group = sim_no)
+  ) + 
+  geom_line(color = "grey", size = .0001) +
+  ylim(min(portfolio_valuation$portfolio_valuation_ts) * 0.9, max(portfolio_agg_val$agg_val) * 1.1) +
+  geom_abline(intercept = 10000, slope = 0, linetype = "dashed", size = 0.5) +
+  geom_line(aes(x = date_stamp, y = agg_val), data = portfolio_agg_val, size = 0.6, color = "red") +
+  facet_grid(cols = vars(src), scales = 'fixed') +
+  labs(
+    title = 'Monte carlo portfolio formation - valuation',
+    x = '',
+    y = 'Portfolio value'
+  ) +
+  custom_theme1
+
 
 
 
@@ -516,21 +536,35 @@ mc_backtest %>%
   geom_density(alpha = 0.3) +
   xlim(min(mc_backtest$cagr), 1) +
   geom_vline(data = mcb_plot_data, aes(xintercept = median_cagr, colour = src), linetype = "dashed", size = 0.5) + 
-  #coord_cartesian(xlim = c(min(mc_backtest$cagr), 1))
+  labs(
+    title = 'Monte carlo portfolio formation - CAGR',
+    x = 'Compound annual growth rate',
+    y = ''
+  ) +
   custom_theme1
 
 mc_backtest %>% 
   ggplot(aes(x = max_drawdown, fill = src, color = src)) +
   geom_density(alpha = 0.3) +
-  xlim(min(mc_backtest$max_drawdown), 0.5) +
+  xlim(min(mc_backtest$max_drawdown), 0.25) +
   geom_vline(data = mcb_plot_data, aes(xintercept = median_dd, colour = src), linetype = "dashed", size = 0.5) + 
+  labs(
+    title = 'Monte carlo portfolio formation - drawdown',
+    x = 'Maximum drawdown',
+    y = ''
+  ) +
   custom_theme1
 
 mc_backtest %>% 
   ggplot(aes(x = volatility, fill = src, color = src)) +
   geom_density(alpha = 0.3) +
-  xlim(min(mc_backtest$volatility), 0.4) +
+  xlim(min(mc_backtest$volatility), 0.3) +
   geom_vline(data = mcb_plot_data, aes(xintercept = median_vol, colour = src), linetype = "dashed", size = 0.5) + 
+  labs(
+    title = 'Monte carlo portfolio formation - volatility',
+    x = 'Volatility',
+    y = ''
+  ) +
   custom_theme1
 
 
@@ -543,30 +577,19 @@ sen <- function(..., weights = NULL) {
 }
 
 preds_all %>% 
-  ggplot(aes(x = fwd_rtn_1m, y = .pred)) + 
+  ggplot(aes(x = .pred, y = fwd_rtn_1m)) + 
   geom_point() +
-  geom_smooth(method = lm, se = FALSE, size = 0.3, colour = 'blue', linetype = 'twodash') +
+  geom_abline(slope = 1, intercept = 0, colour = 'blue', linetype = 'twodash') +
+  #geom_smooth(method = lm, se = FALSE, size = 0.3, colour = 'blue', linetype = 'twodash') +
   #geom_smooth(method = sen, se = FALSE, size = 0.3, colour = 'grey') +
-  facet_wrap(vars(date_stamp), scales = 'free')
+  facet_wrap(vars(date_stamp), scales = 'fixed') +
+  labs(
+    title = 'Actual vs predicted',
+    x = 'Predicted',
+    y = 'Actual'
+  ) +
+  custom_theme1
 
-# Discretise predictions and visualise
-preds_all %>% 
-  group_by(date_stamp) %>% 
-  mutate(
-    pred_tercile = as.factor(ntile(.pred, 3)),
-    actual_tercile = as.factor(ntile(fwd_rtn_1m, 3)),
-    pred_sign = as.factor(sign(.pred)),
-    actual_sign = as.factor(sign(fwd_rtn_1m))
-  ) %>% 
-  ungroup() %>% 
-  conf_mat(actual_tercile, pred_tercile) %>% 
-  autoplot(type = 'heatmap')
-
-# Spearmon correlation of actual and predicted returns
-preds_all %>% 
-  group_by(date_stamp) %>% 
-  summarise(spearman_cor = cor(.pred, fwd_rtn_1m, method = 'spearman')) 
-  
 
 
 
@@ -578,7 +601,13 @@ var_imp_all %>%
   ggplot(aes(x = Importance, y = Variable)) +
   geom_col() + 
   scale_y_discrete(limits = var_imp_summary$Variable) +
-  facet_wrap(vars(end), scales = "fixed")
+  facet_wrap(vars(end), scales = "fixed") +
+  labs(
+    title = 'Variable importance',
+    x = 'Variable',
+    y = 'Importance'
+  ) +
+  custom_theme1
   
 # TO DO explain interactions
 # https://cran.r-project.org/web/packages/EIX/vignettes/EIX.html
@@ -588,7 +617,20 @@ m <- xgb.model.dt.tree(model = extract_fit_engine(final_fit))
 
 
 # 13. Variability of hyper-parameters ---------------------------------------------------------------------------------------
-
+tune_metrics_all %>% 
+  mutate(mtry_depth = paste0(mtry, "_", tree_depth)) %>% 
+  group_by(mtry_depth, end) %>% 
+  summarise(mae = mean(.estimate)) %>% 
+  ggplot(aes(x = mtry_depth, y = mae)) + 
+  geom_col() +
+  #ylim(0.05, max(tune_metrics_all$.estimate)) +
+  facet_wrap(vars(as.factor(end)), scales = "fixed") +
+  labs(
+    title = 'Hyper-parameter variability',
+    x = 'Hyper parameters (mtry_depth)',
+    y = 'Mean absolute error'
+  ) +
+  custom_theme1
 
 
 

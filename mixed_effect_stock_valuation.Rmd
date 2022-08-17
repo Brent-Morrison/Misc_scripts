@@ -20,30 +20,32 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error = FAL
 ```
 
 >  *"datasets are often highly structured, containing clusters of non-independent observational units that are hierarchical in nature, and Linear Mixed Models allow us to explicitly model the non-independence in such data"*  
-(Harrison et al., 2018)[1]  
+(Harrison et al., 2018) [1]  
 
 >  *They allow modeling of data measured on different levels at the same time – for instance students nested within classes and schools – thus taking complex dependency structures into account*  
-(Bürkner, 2018)[2]  
+(Bürkner, 2018) [2]  
 
 >  *These models inherently regularize estimates towards a central value to an extent that depends on the heterogeneity of the underlying groups.*  
-(Green & Thomas, 2019)[3]  
+(Green & Thomas, 2019) [3]  
 
 >  *The regularizing aspects of the 'partial pooling' inherent in the structure of these models (averaging parameter estimates between in-group and across-subject loadings) help to mitigate the impacts of multiple comparisons by pulling an estimate towards its central tendency to the extent warranted by the between-group variance*  
-(Green & Thomas, 2019)[3]  
+(Green & Thomas, 2019) [3]  
 
 <br>
 
-This post will be an exploration of various types of regression models.  The intend is to gain an intuition for different techniques and the context for this will be assessing stock valuation. A particular focus will be on multi-level models and accounting for robustness in the presence of outliers.  
+This post will be an investigation into various types of regression models.  The intent is to gain an intuition across a multitude of techniques and the context for this will be assessing stock valuation. A particular focus will be on multi-level models and ensuring robustness in the presence of outliers.  
 
-The stock valuation model employed is the [P/B - ROE model](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=534442). This model relates the ratio of market capitalisation over book value to return on equity.  We expect that the slope of the regression co-efficient is positive, indicating that holding book value constant, a higher ROE leads to higher valuation.  
+The stock valuation model employed is the [P/B - ROE model](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=534442). This model relates the ratio of market capitalisation over book value to return on equity.  We expect that the slope of the regression co-efficient is positive, indicating that holding book value constant, a higher ROE leads to a higher valuation.  
 
-Regression techniques assessed will cover linear models estimated using ordinary least squares (on a pooled and un-pooled basis), multi-levels models (estimated using both frequentist and bayesian approaches).  As mentioedn above, on-parametric robust techniques will also get a look in.  Multi-level models will be extended to account for measurement error in predictor variables, a useful technique that Bayesian estimation allows us implement.  We will also model the response with a non-normal link functions, using the Student t distribution to account for fat tailed data points.
+Regression techniques assessed will cover linear models estimated using ordinary least squares (on a pooled and un-pooled basis), multi-levels models (estimated using both frequentist and bayesian approaches), and as mentioned above, non-parametric robust technique.  Multi-level models will be extended to account for measurement error in predictor variables, a useful technique that Bayesian estimation allows us to implement.  We will also model the response with a non-normal link functions, using the Student t distribution to account for outlying data points.
 
-As alluded to in the quotes above, and already mentioned, the focus will be on multi-level models.  Why?  Multi-level models purport to provide robust results by virtue of partial pooling.  Partial pooling results in regularisation of parameter estimates.  Robust regression techniques also purport to provide robust results (it's all in the name isn't it).  We will see how they compare.   
+As alluded to in the quotes above, the focus will be on multi-level models.  Why this particular focus?  Multi-level models purport to provide robust results by virtue of partial pooling.  Partial pooling results in regularisation of parameter estimates via the sharing of information across groups or clusters of observations.  Stocks naturally fall into groups based on industry membership.  This makes multi-level models a highly relevant technique in the modelling of stock valuations.  
+
+Robust regression techniques also purport to provide robust results (it's all in the name isn't it).  We will see how they compare.   
 
 The Theil-Sen regression fits the bill for the non-parametric robust technique.  Theil-Sen has been discussed [here](https://brentmorrison.netlify.app/post/abalone-and-outliers/), and is a robust technique that works to dampen the impact of outliers.  It does so whereby the slope is derived taking the median of many individual slopes, those being fitted to each pair of data points.  
 
-Two approaches that have a similar aim but take different routes to model data.  It will be interesting to review the difference in fit between models that pool data and embed an underlying distributional assumption (ADD QUOTE FROM MCELREATH RE NORMAL AFTER CONDITIONING ON PREDICTORS), and those that are non-parametric and use robust techniques.  
+Two approaches that have a similar aim but take different routes to model data.  It will be interesting to review the difference in fit between models that pool data and embed an underlying distributional assumption, and those that are non-parametric and use robust techniques.  
 
 ```{r}
 # Libraries
@@ -83,7 +85,7 @@ def_theme1 <- theme_minimal() +
 
 ## The data  
 
-The data comprises around 750 individual companies.  These companies are grouped into 11 sectors and 40 odd industries.  The data is as of June 2021 and comes from the Securites and Exchange Commission via my [Stock_master](https://github.com/Brent-Morrison/Stock_master) database.
+The data under analysis comprises around 750 individual companies.  These companies are grouped into 11 sectors and 40 odd industries.  The data is as of June 2021 and comes from the Securites and Exchange Commission via my [Stock_master](https://github.com/Brent-Morrison/Stock_master) database.
 
 Below are some variables of interest.  Our dependent variable is log_pb, the independent variable is roe.
 
@@ -134,7 +136,7 @@ data %>%
   geom_smooth(method = sen, se = FALSE, size = 0.6, colour = 'grey') +
   labs(
     title = 'Log book / price ratio versus return on equity',
-    x = 'Return on equity',
+    x = 'Return on equity (scaled)',
     y = 'Log price / book ratio'
   ) +
   theme(
@@ -153,9 +155,9 @@ There is a hint of non-linearity in the relationship.
 
 ## Unpooled analysis  
 
-Stocks with similar characteristics are grouped into sectors.  It is reasonable to expect that sectors may have different characteristics giving rise to differing relationships between ROE and valuation.  Different sectors may have different growth prospects and risk profiles for example. 
+Stocks with similar characteristics are grouped into sectors.  It is reasonable to expect that sectors will have different characteristics giving rise to differing relationships between ROE and valuation.  Different sectors may have different growth prospects and risk profiles for example. 
 
-With this in mind, the plot below shows the same regression models estimated above (the GAM has been removed), except now applied individually to each sector.  
+With this in mind, the plot below shows the same regression models estimated above (the GAM has been removed), applied individually to each sector.  
 ```{r}
 # Model coefficients for OLS and Thiel Sen regression
 model_coefs <- data %>% 
@@ -200,11 +202,11 @@ p1 <- data %>%
 p1
 ```
 
-Once again we might argue the robust regression fits the data better.  Witness group 1 comprising the "Industrials" sector, whereby the data points distinct from the diagonal cluster, skews the fit.
+How has the line of best fit changed?  Once again we might argue the robust regression fits the data better.  Witness group 1 comprising the Industrials sector.  The data points distinct from the diagonal cluster skew the OLS derived slope, effectively pulling the left hand side of the line higher, and the resultant slope is shallower than that derived using the Theil-Sen regression.
 
 <br>
 
-Below, the intercepts and slopes for each of the individual linear models presented above are plotted.  
+Below, we visualise the intercepts and slopes for each of the individual linear models.  
 
 ```{r}
 model_coefs_all <- bind_rows(
@@ -237,7 +239,7 @@ model_coefs_all %>%
   scale_color_manual(values=c("OLS"="#3366FF", "TS"="grey40"))
 ```
 
-A couple of the OLS models have negative slopes and consistent with the observations above, the Theil-Sen slopes are more compact or closer to each other.
+A couple of the OLS models have negative slopes, this is counter to expectation.  Consistent with the observations above, the Theil-Sen slopes are more compact or closer to each other.
 
 <br>
 
@@ -271,7 +273,9 @@ p2 <- p1 +
 p2
 ```
 
-The plot is a little harder to read with the constant scale.  We can see however that the LSDV forces an unnatural fit. Sector 5 for example, (Financial Services) has a much smaller slope than would appear warranted.  This is driven by the influence of other sectors that have a large slope.  Financials are in effect an outlier among sectors and the rigidity of the model does not allow the data to influence this sectors slope.
+The plot is a little harder to read with the constant scale.  We can see however that the LSDV forces an unnatural fit. Sector 5 for example, (Financial Services) has a much smaller slope than would appear warranted.  This is driven by the influence of other sectors that have a large slope.  Financials are in effect an outlier among sectors and the rigidity of the model does not allow the data to influence this sectors slope.  
+
+Sector 6 has a comparatively compact range of returns on equity and valuations, this is consistent with a regulated industry.  If a group of businesses profitability and growth is capped, investors will assign a lower valuation.  Indeed, sector 6 contains utilities.   
 
 <br>
 
@@ -318,11 +322,11 @@ As discussed above, the LSDV model enforces a constant slope across groups and w
 
 ## Partial pooling
 
-We now look at Multi level models.  The expectation here is that parameters estimated with this model (as compared to independent OLS models) will experience shrinkage to a mean as the population data influences each groups coefficients.  
+We now look at multi-level models.  The expectation is that parameters estimated using this technique (as compared to independent OLS models) will experience shrinkage to a mean as the population data influences each groups coefficients.  The references and introductory quotes inform support this view.    
 
 Of interest is the extent to which the shrinkage aligns coeffiecents with the Theil-Sen robust model.  
 
-The mixed effects regression line plotted below is estimated with the ```lme4``` package
+The mixed effects regression lines plotted below are estimated using the ```lme4``` package
 
 ```{r}
 # Mixed effects model with fixed and random intercept 
@@ -367,32 +371,47 @@ model_coefs_all %>%
   scale_color_manual(values=c("OLS"="#3366FF", "TS"="grey40", "LSDV"="black", "Multi level"="magenta2"))
 ```
 
-Compared to expectation, that was a little underwhelming.  There is essentially no difference between the mixed effects and individual OLS models.  This is probably due to the small number of groups (11) and the large amount of data points within each group.  
+Compared to expectation, that was a little underwhelming.  There is essentially no difference between the mixed effects and individual OLS models.  Why is this so?  That question should be considered in light of the drivers of parameter shrinkage in multi-level models.  Shrinkage is driven by:  
 
-Sectors that experienced the most shrinkage (the difference between the independent OLS and Multi-level models) are those that have fewer data points and / or the most extreme (furthest from average) parameter estimates pre shrinkage.  Sector 9 (????) falls into this category.
+1. The size of the group, groups with more individual members will experience less shrinkage, and  
 
-Note that the model as defined estimates a correlation between the intercept and slope for each sector. 
+2. The variance of the random effects (how the groups differ) versus the residual variance (how the observations within each group differ).  The more groups differ as compared to the extent individuals within groups differ, the less shrinkage.[^1]  
 
-IS THIS REASONABLE?  WHAT DOES THE INTERCEPT AND SLOPE REPRESENT IN THE PB-ROE MODEL (REFER ORIGINAL PAPER) 
+[^1]: This can be measured with the intraclass-correlation coefficient (ICC) / variance partition coefficient (VPC).  A high ICC indicates that observations depend on cluster membership, and hence will experience less shrinkage.  A low ICC / VPC can indicate that a multi-level modelling structure is not warranted.  Also note the Design Effect discussed by Sommet & Morselli [4] that is designed to perform the same task.
+
+Both of these points demonstrate that these models "let the data speak".  If groups differ substantially and have a lot of members, the parameters inferred from that group remain relatively unchanged.  The vice versa is true.
+
+Back to the question - why so little shrinkage?  This is probably due to the small number of groups (11) and the large amount of data points within each group.  
+
+Sectors that experienced the most shrinkage (the difference between the independent OLS and multi-level models) are those that have fewer data points and / or the most extreme (furthest from average) parameter estimates pre shrinkage.  Sector 9 (Business Services) falls into this category.
+
+One last point in relation to this model.  As defined, it estimates a correlation between the intercepts and slopes for each sector. Is this correlation a reasonable assumption to make in terms of model structure?  Lets explore that question.  The intercept represents the outcome when the predictor is zero.  A zero return on equity would imply that the market value of a business equal its accounting / book value (assuming the book value is fair).  An asset only has a premium over it's book value if it earns returns.  So in this case the P/B ratio is one and the log_pb is 0.  We have scaled the ROE so the numbers change but the intuition should remain.  Wilcox [5] at p.199 defines the slope as representing the investment horizon before the ROE reverts to its mean [^2].
+
+[^2]: The intuition behind this is beyond me, the mathematics behind the PB-ROE model are pretty hairy.
+
+So, should the P/B ratio when ROE is nil systematically change with an investment horizon.  I'm going to say no - certainly not when using the log P/B which returns zero.  All the same, I will continue to model using the default correlation structure, simply because it is the default behaviour for lme4 and I doubt the effect is significant.
+
+[^2]: The intuition behind this is beyond me, the mathematics behind the PB-ROE model are pretty hairy.
 
 <br>
 
 ## Bayesian approach
 
-Next, we estimate the multi level model using a bayesian approach.  This will allow for the specification of priors for both the slope and intercept coefficients, and also the correlation between those coefficients.  An appropriately specified prior should enforce more shrinkage (remember we are encoding our domain knowledge here, and assuming a negative relation between P/B ratio and ROE does not make sense).
+Next, we estimate the multi-level model using a bayesian approach.  This will allow for the specification of priors for both the slope and intercept coefficients, and also the correlation between those coefficients.  An appropriately specified prior should enforce more shrinkage (remember we are encoding our domain knowledge here, and assuming a negative relation between P/B ratio and ROE does not make sense).
 
 The bayesian mixed effects model below is fit with the [Rethinking](https://github.com/rmcelreath/rethinking) package.  In this model the predictor, return on equity, is standardised to mean zero and unit variance.  This helps in setting appropriate priors.
 
-The intercepts is defined as the outcome (log_pb) when the predictor (roe) is zero.  When the predictor variable is standardised like we have just done, it's mean is zero.  So what is a reasonable expectation of the log_bp when roe is at it's mean?  Luckily the second plot above uses the standardised ROE and we can see this is associated with a log_pb of circa 1.25.  That converts to a P/B ratio of around 3.5 (the exponent of 1.25). 
+The intercept is defined as the outcome (log_pb) when the predictor (roe) is zero.  When the predictor variable is standardised like we have just done, it's mean is zero.  So what is a reasonable expectation of the log_bp when roe is at it's mean?  Luckily the second plot above uses the standardised ROE and we can see this is associated with a log_pb of circa 1.25.  That converts to a P/B ratio of around 3.5 (the exponent of 1.25) which sounds reasonable.  
 
-DISCUSS STANDARD DEVIATION AND BETA PRIOR.
+The model below therefore has a N(1.25, 1) prior for the intercept and N(2, 1.5) prior for the slope.
+
 
 ```{r, results="hide"}
 # Data in Rethinking / McElreath format
 d <- list(
   log_pb = data$log_pb,
   roe    = data$roe,
-  vol    = data$vol_ari_60d,
+  vol    = scale(data$vol_ari_60d),
   sector = data$sector,
   n      = nrow(data)
   )
@@ -414,7 +433,7 @@ bayes1 <- ulam(
     
     # Priors for covariance matrix
     a ~ normal(1.25, 1),                        # prior for average intercept
-    b ~ normal(1, 1.5),                         # prior for average slope
+    b ~ normal(2, 1.5),                         # prior for average slope
     Rho ~ lkj_corr(2),                          # prior for correlation matrix
     sigma_sector ~ exponential(1)               # prior for vector of SD's (slope & int) in covariance matrix
   ),
@@ -480,6 +499,8 @@ model_coefs_all %>%
 
 Let's re-estimate the bayesian model using tighter priors and a student t likelihood for a more robust approach.  Will this model configuration turn those un-intuitive negative slopes positive?
 
+The prior over the slope in the model below is N(3, 1).  The previous models prior is N(2, 1.5).
+
 ```{r, results="hide"}
 # Data in Rethinking / McElreath format
 set.seed(123)
@@ -495,7 +516,7 @@ bayes2 <- ulam(
     # Variance co-variance matrix prior for intercept and slope
     c(a_sector, b_sector)[sector] ~ multi_normal(c(a, b), Rho, sigma_sector),
     a ~ normal(1.25, 1),                         # prior for average intercept
-    b ~ normal(1, 1.5),                          # prior for average slope
+    b ~ normal(3, 1),                            # prior for average slope
     nu ~ gamma(2, 0.1),                          # use brms default prior
     sigma_sector ~ exponential(1),
     sigma ~ exponential(1),                      # prior for residual standard deviation of response dist.
@@ -574,15 +595,15 @@ model_coefs_all %>%
   scale_color_manual(values=c("Bayes normal"="blue", "Bayes student"="green", "TS"="grey40", "Multi level"="magenta2"))
 ```
 
-Using the Student t distribution does not result in drastically different slope estimates.  It may have reduced uncertainty (remember that is something we get with bayesian estimation) but we are not looking at that here.  
+Using the Student t distribution does not result in drastically different slope estimates (except sector 7 - Healthcare).  It may have reduced uncertainty (remember that is something we get with bayesian estimation) but we are not looking at that here.  
 
 <br>
 
 ## Bayesian model with measurement error (student t) 
 
-We now attempt to account for measurement error in the price to book ratio. We know that stock prices are more volatile than the underlying fundamentals (INSERT LINK REFERENCE).  It is reasonable to expect that any measurement error or random noise in this ratio scales with the volatility of the underlying stock price.
+We now attempt to account for measurement error in the price to book ratio. It is well known that stock prices are more volatile than the underlying fundamentals.  It is reasonable to expect that any measurement error or random noise in this ratio scales with the volatility of the underlying stock price.
 
-The model that follows is based on that per McElreath's text (p 493) and considers the true underlying P/B ratio is a function of the observed ratio and an error component that scales with trailing volatility.
+The model that follows is based on that per McElreath [6] p.493, and considers the true underlying P/B ratio a function of the observed ratio and an error component that scales with trailing price volatility.
 
 ```{r, results="hide"}
 # Data in Rethinking / McElreath format
@@ -663,18 +684,89 @@ model_coefs_all %>%
   scale_color_manual(values=c("Bayes normal"="blue", "Bayes student"="green", "Bayes student me"="red", "TS"="grey40"))
 ```
 
-OK.  Once again, not a large deviation in slope estimates across different techniques.  EXPAND COMMENTARY
+Once again, not a large deviation in slope estimates across different techniques.  It is difficult to pin down why this is so without performing a slew of additional analysis.  I'm going to point out a two potential drivers:  
+
+1. Omitted variable bias, the driver of the outlying data points is a factor not modeled, or  
+
+2. xxxx  
 
 <br>
 
 
 ### Summary
 
+Thus far we have assessed model fit based on expectations and eyeballing of scatterplots and fitted regression lines.  To summarise lets look at each model from a residual vs actual and predicted versus actual perspective.  This might tease out some further insight.
+
+```{r}
+resid_data <- data %>% 
+  mutate(
+    lsvd_e    = lsvd_pred - log_pb,
+    lme1_e    = lme1_pred - log_pb,
+    bayes1_e  = bayes1_pred - log_pb,
+    bayes2_e  = bayes2_pred - log_pb,
+    bayes3_e  = bayes3_pred - log_pb
+    ) %>% 
+  select(log_pb:bayes3_e) %>% 
+  pivot_longer(!log_pb, names_to = 'model_type', values_to = 'value') %>% 
+  mutate(data_type = if_else(grepl('_e', model_type), 'residual', 'fitted'))
+
+ggplot(
+  resid_data[resid_data$data_type == 'fitted', ], 
+  aes(y = log_pb, x = value)
+  ) + 
+  geom_point(alpha = 0.3) +
+  geom_abline(intercept = 0, slope = 1) +
+  facet_wrap(vars(model_type)) +
+    labs(
+    title = 'Log book / price ratio',
+    subtitle = 'Actual vs predicted',
+    y = 'Actual',
+    x = 'Predicted'
+  ) +
+  theme(
+    plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey40", hjust = 0),
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks = element_blank()
+  ) +
+  def_theme1
+```
+
+```{r}
+ggplot(
+  resid_data[resid_data$data_type == 'residual', ], 
+  aes(y = log_pb, x = value)
+  ) + 
+  geom_point(alpha = 0.3) +
+  facet_wrap(vars(model_type)) +
+    labs(
+    title = 'Log book / price ratio',
+    subtitle = 'Actual vs residual',
+    y = 'Actual',
+    x = 'Residual'
+  ) +
+  theme(
+    plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey40", hjust = 0),
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks = element_blank()
+  ) +
+  def_theme1
+```
+
+
+### Closing
+This post may seem like a pursuit for the holy grail, a simple regression model that explains stock valuation.  
+
 WHAT WASN'T DONE AND COULD BE DONE.
 
 NOTE RE MISSING PREDICTORS
 
 THE ABOVE IGNORES PARAMETER ESTIMATE UNCERTAINTY FOR BAYESIAN MODELS
+
+COULD HAVE LOOKED AT ICC TO DETERMINE SUITABILIY OF MLM  
+
+NO FORMAL MODEL COMPARISON
 
 
 
@@ -684,12 +776,29 @@ THE ABOVE IGNORES PARAMETER ESTIMATE UNCERTAINTY FOR BAYESIAN MODELS
 
 ## References
 
-[1] Harrison XA, Donaldson L, Correa-Cano ME, Evans J, Fisher DN, Goodwin CED, Robinson BS, Hodgson DJ, Inger R. 2018. A brief introduction to mixed effects modelling and multi-model inference in ecology. PeerJ 6:e4794 https://doi.org/10.7717/peerj.4794  
+[1] Harrison XA, Donaldson L, Correa-Cano ME, Evans J, Fisher DN, Goodwin CED, Robinson BS, Hodgson DJ, Inger R. 2018. A brief introduction to mixed effects modelling and multi-model inference in ecology. PeerJ 6:e4794 https://doi.org/10.7717/peerj.4794
+
 <br>  
-[2] Paul-Christian Bürkner. Advanced Bayesian Multilevel Modeling with the R Package brms. 2018  
+
+[2] Paul-Christian Bürkner. Advanced Bayesian Multilevel Modeling with the R Package brms. 2018
+
 <br>  
-[3] Green, Brice and Thomas, Samuel, Inference and Prediction of Stock Returns using Multilevel Models (August 31, 2019). Available at SSRN: https://ssrn.com/abstract=3411358 or http://dx.doi.org/10.2139/ssrn.3411358  
+
+[3] Green, Brice and Thomas, Samuel, Inference and Prediction of Stock Returns using Multilevel Models (August 31, 2019). Available at SSRN: https://ssrn.com/abstract=3411358 or http://dx.doi.org/10.2139/ssrn.3411358
+
 <br> 
+
+[4] Sommet, N. and Morselli, D., 2021. Keep Calm and Learn Multilevel Linear Modeling: A Three-Step Procedure Using SPSS, Stata, R, and Mplus. International Review of Social Psychology, 34(1), p.24. DOI: http://doi.org/10.5334/irsp.555
+
+<br> 
+
+[5] Wilcox, J. 1999. Investing by the Numbers (Frank J. Fabozzi Series). Wiley
+
+<br> 
+
+[6] McElreath, R. 2020. Statistical Rethinking: A Bayesian Course with Examples in R and STAN, 2nd Edition. CRC Press
+
+<br>
 
 Mixed effects models using lme4
 lme4 manual:- https://lme4.r-forge.r-project.org/book/  
@@ -725,3 +834,9 @@ https://www.baseballprospectus.com/news/article/26195/prospectus-feature-introdu
 https://www.baseballprospectus.com/news/article/26196/prospectus-feature-dra-an-in-depth-discussion/  
 
 Robust bayesian regression - https://solomonkurz.netlify.app/post/2019-02-02-robust-linear-regression-with-student-s-t-distribution/
+
+Intraclass Correlation Coefficient   https://www.theanalysisfactor.com/the-intraclass-correlation-coefficient-in-mixed-models/
+
+Shrinkage - https://m-clark.github.io/posts/2019-05-14-shrinkage-in-mixed-models/
+
+https://mldscenter.maryland.gov/egov/Publications/ResearchSeries/Clustered%20Data,%20Are%20Multilevel%20Models%20Really%20Necessary.pdf
