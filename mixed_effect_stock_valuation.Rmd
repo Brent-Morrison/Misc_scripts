@@ -129,14 +129,14 @@ sen <- function(..., weights = NULL) {
 }
 
 data %>% 
-  ggplot(aes(x = roe_s, y = log_pb)) +
+  ggplot(aes(x = roe, y = log_pb)) +
   geom_point(alpha = 0.3) +
   stat_smooth(method = 'gam', se = FALSE, formula = y ~ s(x), size = 0.6, colour = 'magenta') +
   geom_smooth(method = lm, se = FALSE, size = 0.6, color = "#3366FF") +
   geom_smooth(method = sen, se = FALSE, size = 0.6, colour = 'grey') +
   labs(
     title = 'Log book / price ratio versus return on equity',
-    x = 'Return on equity (scaled)',
+    x = 'Return on equity',
     y = 'Log price / book ratio'
   ) +
   theme(
@@ -146,6 +146,11 @@ data %>%
     axis.ticks = element_blank()
   ) +
   def_theme1
+
+# Add predictions to df
+data$lm_agg_pred <- predict(lm(log_pb ~ roe, data = data))
+data$ts_agg_pred <- predict(mblm(log_pb ~ roe, data = data))
+data$gam_agg_pred <- predict(mgcv::gam(log_pb ~ s(roe), data = data))
 ```
 
 The Theil-Sen regression seems to fit the data better (at least on a rough eyeballing of the plot), fitting the dense cluster of data points more closely. As expected, the slope of the line is positive, indicating all else equal, a higher valuation given higher return on equity.  
@@ -178,6 +183,13 @@ model_coefs <- data %>%
   ) %>% 
   select(-fit_ols, -fit_ts, -data) %>%
   ungroup()
+
+# Predictions
+data <- merge(data, model_coefs, by.x = 'sector', by.y = 'sector')
+data$ts_ind_pred <- data$int_ts + data$roe * data$slp_ts
+data$ols_ind_pred <- data$int_ols + data$roe * data$slp_ols
+data <- subset(data, select = -c(date_stamp.y, x_min, y_min, x_max, y_max))
+names(data)[names(data) == 'date_stamp.x'] <- 'date_stamp'
 
 # Plot
 p1 <- data %>% 
@@ -318,15 +330,17 @@ c2 <- model_coefs_all %>%
 # Plot
 c2
 ```
+<br>
+
 As discussed above, the LSDV model enforces a constant slope across groups and we can see this above.   
 
 ## Partial pooling
 
 We now look at multi-level models.  The expectation is that parameters estimated using this technique (as compared to independent OLS models) will experience shrinkage to a mean as the population data influences each groups coefficients.  The references and introductory quotes inform support this view.    
 
-Of interest is the extent to which the shrinkage aligns coeffiecents with the Theil-Sen robust model.  
+Of interest is the extent to which the shrinkage aligns coefficients with the Theil-Sen robust model.  
 
-The mixed effects regression lines plotted below are estimated using the ```lme4``` package
+The mixed effects regression lines plotted below are estimated using the ```lme4``` package.
 
 ```{r}
 # Mixed effects model with fixed and random intercept 
@@ -399,11 +413,11 @@ So, should the P/B ratio when ROE is nil systematically change with an investmen
 
 Next, we estimate the multi-level model using a bayesian approach.  This will allow for the specification of priors for both the slope and intercept coefficients, and also the correlation between those coefficients.  An appropriately specified prior should enforce more shrinkage (remember we are encoding our domain knowledge here, and assuming a negative relation between P/B ratio and ROE does not make sense).
 
-The bayesian mixed effects model below is fit with the [Rethinking](https://github.com/rmcelreath/rethinking) package.  In this model the predictor, return on equity, is standardised to mean zero and unit variance.  This helps in setting appropriate priors.
+Let's think about the priors.  The intercept is defined as the outcome (log_pb) when the predictor (roe) is zero.  So what is a reasonable expectation of the log_bp when roe is zero?  Ignoring the log transform initially, if an asset does not earn a return then it will not command a premium.  In this case the book and market are expected to be identical.  Therefore we should expect a price to book ratio of one (the log thereof being zero) when roe is zero.  Eyeballing the second plot above supports this narrative.  
 
-The intercept is defined as the outcome (log_pb) when the predictor (roe) is zero.  When the predictor variable is standardised like we have just done, it's mean is zero.  So what is a reasonable expectation of the log_bp when roe is at it's mean?  Luckily the second plot above uses the standardised ROE and we can see this is associated with a log_pb of circa 1.25.  That converts to a P/B ratio of around 3.5 (the exponent of 1.25) which sounds reasonable.  
+The model below therefore has a N(0, 1.5) prior for the intercept and N(1, 1.5) prior for the slope.  
 
-The model below therefore has a N(1.25, 1) prior for the intercept and N(2, 1.5) prior for the slope.
+The bayesian mixed effects model below is fit with the [Rethinking](https://github.com/rmcelreath/rethinking) package.    
 
 
 ```{r, results="hide"}
@@ -432,7 +446,7 @@ bayes1 <- ulam(
     c(a_sector, b_sector)[sector] ~ multi_normal(c(a, b), Rho, sigma_sector),
     
     # Priors for covariance matrix
-    a ~ normal(1.25, 1),                        # prior for average intercept
+    a ~ normal(0, 1.5),                         # prior for average intercept
     b ~ normal(2, 1.5),                         # prior for average slope
     Rho ~ lkj_corr(2),                          # prior for correlation matrix
     sigma_sector ~ exponential(1)               # prior for vector of SD's (slope & int) in covariance matrix
@@ -603,7 +617,7 @@ Using the Student t distribution does not result in drastically different slope 
 
 We now attempt to account for measurement error in the price to book ratio. It is well known that stock prices are more volatile than the underlying fundamentals.  It is reasonable to expect that any measurement error or random noise in this ratio scales with the volatility of the underlying stock price.
 
-The model that follows is based on that per McElreath [6] p.493, and considers the true underlying P/B ratio a function of the observed ratio and an error component that scales with trailing price volatility.
+The model that follows is based on that per McElreath [6] p.493.  This model considers the true underlying P/B ratio a function of the observed ratio and an error component that scales with trailing price volatility.
 
 ```{r, results="hide"}
 # Data in Rethinking / McElreath format
@@ -653,7 +667,6 @@ bayes3_pred_samples <- link(bayes3, data = d)
 data$bayes3_pred <- apply(bayes3_pred_samples, 2, mean)
 ```
 
-Scatter plots
 ```{r}
 p6 <- p5 + 
   geom_line(aes(x = roe, y = bayes3_pred), data = data, size = 0.3, colour = 'red') +
@@ -667,7 +680,6 @@ p6 <- p5 +
 p6
 ```
 
-Coefficient plots 
 ```{r}
 model_coefs_all %>% 
   filter(source %in% c('Bayes normal','Bayes student','Bayes student me', 'TS')) %>% 
@@ -693,20 +705,26 @@ Once again, not a large deviation in slope estimates across different techniques
 <br>
 
 
-### Summary
+## Summary
 
-Thus far we have assessed model fit based on expectations and eyeballing of scatterplots and fitted regression lines.  To summarise lets look at each model from a residual vs actual and predicted versus actual perspective.  This might tease out some further insight.
+Thus far we have assessed model fit based on expectations and eyeballing of scatter plots and fitted regression lines.  To summarise lets look at each model from a residual vs actual and predicted vs actual perspective.  This might tease out further insights.
 
 ```{r}
 resid_data <- data %>% 
   mutate(
-    lsvd_e    = lsvd_pred - log_pb,
-    lme1_e    = lme1_pred - log_pb,
-    bayes1_e  = bayes1_pred - log_pb,
-    bayes2_e  = bayes2_pred - log_pb,
-    bayes3_e  = bayes3_pred - log_pb
+    ols_agg_e = lm_agg_pred  - log_pb,
+    ts_agg_e  = ts_agg_pred  - log_pb,
+    gam_agg_e = gam_agg_pred - log_pb,
+    ols_ind_e = ols_ind_pred  - log_pb,
+    ts_ind_e  = ts_agg_pred  - log_pb,
+    lsvd_e    = lsvd_pred    - log_pb,
+    lme1_e    = lme1_pred    - log_pb,
+    #bayes1_e  = bayes1_pred  - log_pb,
+    #bayes2_e  = bayes2_pred  - log_pb,
+    bayes3_e  = bayes3_pred  - log_pb
     ) %>% 
   select(log_pb:bayes3_e) %>% 
+  select(-int_ols, -int_ts, -slp_ols, -slp_ts, -bayes1_pred, -bayes2_pred) %>% 
   pivot_longer(!log_pb, names_to = 'model_type', values_to = 'value') %>% 
   mutate(data_type = if_else(grepl('_e', model_type), 'residual', 'fitted'))
 
@@ -755,7 +773,7 @@ ggplot(
 ```
 
 
-### Closing
+## Closing
 This post may seem like a pursuit for the holy grail, a simple regression model that explains stock valuation.  
 
 WHAT WASN'T DONE AND COULD BE DONE.
@@ -766,7 +784,7 @@ THE ABOVE IGNORES PARAMETER ESTIMATE UNCERTAINTY FOR BAYESIAN MODELS
 
 COULD HAVE LOOKED AT ICC TO DETERMINE SUITABILIY OF MLM  
 
-NO FORMAL MODEL COMPARISON
+NO FORMAL MODEL COMPARISON OR DIAGNOSTICS OF THE MODEL FIT
 
 
 
