@@ -22,4 +22,3 @@ nuclear_explosions %>%
   coord_flip()
 
 
-
