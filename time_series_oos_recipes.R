@@ -30,8 +30,21 @@ sp_shade      <- readRDS("C:/Users/brent/Documents/R/Misc_scripts/sp_shade.Rda")
 #==     Create leading economic indicator                                              ==
 #========================================================================================
 
-rolling_median <- rollify(median, window = 61)
+# rolling median function
+rolling_median <- rollify(median, window = 35)
+
+# Rolling pca function
+# https://stackoverflow.com/questions/41616427/rolling-pca-and-plotting-proportional-variance-of-principal-components
 #rolling_pca <- rollify(prcomp, window = 61)
+
+# Rolling valuation residuals function
+rolling_val_resid <- rollify(
+  .f = function(earn_yld_5yr, infl, GS10, m2) {
+    # Remove tail function to create nested data frame for each window
+    tail(residuals(lm(earn_yld_5yr ~ infl + GS10 + m2)), n = 1)
+  }, 
+  window = 120, 
+  unlist = FALSE)
 
 econ_fin_data <- econ_fin_data %>% 
   filter(between(date, as.Date("1945-06-01"), as.Date("2019-12-01"))) %>% 
@@ -42,7 +55,7 @@ econ_fin_data <- econ_fin_data %>%
     earn_yld = lag(E, n = 6) / close, 
     earn_yld_5yr = lag(rolling_median(E), n = 6) / close, 
     infl = lag(ROC(CPIAUCSL, n = 12), n = 1),  
-    rule_20 = earn_yld - infl,  #(close / lag(E, n = 6)) + (infl * 100),
+    earn_yld_rule_20 = (1/(20 - (infl * 100))) - earn_yld_5yr, #(close / lag(E, n = 6)) + (infl * 100),
     m2 = lag(ROC(M2SL, n = 12),n = 1),
     cred_sprd = lag(BAA - AAA, n = 1),
     cred_sprd_12m_delta = cred_sprd - lag(cred_sprd, n = 1),
@@ -72,8 +85,9 @@ econ_fin_data <- econ_fin_data %>%
       permit,     
       ic4wsa,
       hmi
-    ), na.rm = TRUE)
-  ) #%>% 
+    ), na.rm = TRUE)#,
+    #vltn_resid = rolling_val_resid(earn_yld_5yr, infl, GS10, m2)
+  ) #%>% unnest(cols = c(vltn_resid))
 #fill(everything(), .direction = c("down"))
 
 
@@ -97,7 +111,7 @@ vltn_model <- econ_fin_data %>%
 econ_fin_data <- inner_join(econ_fin_data, vltn_model, by = "date")
 
 # Plot
-# trans.plot(econ_fin_data, sp_shade, val_rsdl, both)
+trans.plot(econ_fin_data, sp_shade, sp5_gs10_3yr_cor, both)
 
 
 #========================================================================================
@@ -338,6 +352,8 @@ var_importance %>%
         axis.ticks = element_blank(),
         plot.caption = element_text(size = 9, color = "grey55")
   )
+
+
 
 
 #========================================================================================
