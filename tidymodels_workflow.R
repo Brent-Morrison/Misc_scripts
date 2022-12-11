@@ -4,10 +4,10 @@
 # Tidymodels work flow
 # 
 # Information based - random forest / xgboost
-# Similarity based  - knn / kernal regression
+# Similarity based  - knn / kernal regression / SVM
 # Probability based - naive bayes / bayesian network
 # Error based - neural network / logistic regression
-# WHAT CATEGORY IS SVM?
+# 
 # https://www.kirenz.com/post/2021-02-17-r-classification-tidymodels/
 #
 # --------------------------------------------------------------------------------------------------------------------------
@@ -21,6 +21,9 @@ library('vip')
 library('reticulate')
 library('romerb')
 library('xgboost')
+library('DBI')
+library('RPostgres')
+library('jsonlite')
 #library('ranger')
 #library('randomForest')
 #library('neuralnet')
@@ -41,12 +44,36 @@ custom_theme1 <- theme_minimal() +
     axis.text.x = element_text(size = 7, color = "darkslategrey")
   )
 
+# 0. DB ------------------------------------------------------------------------------------------------------------------
+
+config <- jsonlite::read_json('C:/Users/brent/Documents/VS_Code/postgres/postgres/config.json')
+
+con <- dbConnect(
+  RPostgres::Postgres(),
+  host      = 'localhost',
+  port      = '5432',
+  dbname    = 'stock_master',
+  user      = 'postgres',
+  password  = config$pg_password
+)
+
+# Stock data
+qry_text <- "select * from access_layer.return_attributes where date_stamp > current_date - interval '20 years' order by 1, 2"
+qry_send <- dbSendQuery(conn = con, statement = qry_text) 
+df_raw <- dbFetch(qry_send)
+
+# S&P500 data
+sp5_sql <- "select * from access_layer.daily_sp500_ts_vw"
+sp5_send <- dbSendQuery(conn = con, statement = sp5_sql) 
+sp5_raw_df <- dbFetch(sp5_send)
+
+
 # 1. Data ------------------------------------------------------------------------------------------------------------------
 
 # Raw data
-data("stock_data")
-df_raw <- stock_data
-rm(stock_data)
+#data("stock_data")
+#df_raw <- stock_data
+#rm(stock_data)
 
 # Data for model input & OOS scoring
 df_features <- df_raw %>% 
@@ -72,9 +99,15 @@ df_features <- df_raw %>%
     date_stamp, date_char, symbol, fwd_rtn_1m,
     rtn_ari_1m, rtn_ari_1m_sct, rtn_ari_1m_ind,
     rtn_ari_12m, rtn_ari_12m_sct, rtn_ari_12m_ind,
-    vol_ari_60d, vol_ari_60d_sct, vol_ari_60d_ind
+    vol_ari_60d, vol_ari_60d_sct, vol_ari_60d_ind,
+    skew_ari_120d, kurt_ari_120d 
   ) %>% 
-  ungroup()
+  ungroup() #%>% 
+  #group_by(date_stamp) %>%
+  # re drop() - note shape of dim(scale(df_features$fwd_rtn_1m))
+  #mutate(fwd_rtn_1m = drop(scale(fwd_rtn_1m))) %>%
+  #ungroup()
+           
 
 # Sample
 #set.seed(234)
@@ -89,12 +122,8 @@ df_model_in <- df_features %>%
     date_stamp < max(df_features$date_stamp),
     between(fwd_rtn_1m, -0.5, 0.5),
     date_stamp >= as.Date('2017-06-01')                                                                  #### PARAMETER ####
-  ) %>% drop_na() 
-
-# OOS scoring data (current month)
-df_oos_score <- df_features %>% 
-  filter(date_stamp == max(df_features$date_stamp)) %>% 
-  select(-fwd_rtn_1m)
+  ) %>% 
+  drop_na() 
 
 
 # Remove dupes
@@ -105,13 +134,13 @@ df_model_in %>% group_by(symbol, date_stamp) %>% summarise(n = n()) %>% filter(n
 
 
 # Train / test parameters
-train_months <- 36                                                                                       #### PARAMETER ####
-test_months <- 6                                                # out of sample test_months              #### PARAMETER ####
+train_months <- 20                                                                                       #### PARAMETER ####
+test_months <- 4                                                # out of sample test_months / stride     #### PARAMETER ####
 months <- sort(unique(df_model_in$date_stamp))
-total_months <- length(months)                                  # this is also the stride
+n_months <- length(months)
 sample_months <- train_months + test_months                     # length of resultant df
-loops <- floor((total_months - train_months - 1) / test_months) # minus 1 since last month is "live" and does not contain labels / forward returns
-start_month_idx <- total_months - (test_months * loops) - train_months + 1
+loops <- floor((n_months - train_months ) / test_months)
+start_month_idx <- n_months - (test_months * loops) + 1 - train_months
 
 
 # Empty list for loop output
@@ -147,7 +176,7 @@ for (i in seq(from = start_month_idx, by = test_months, length.out = loops)) {
   start <- months[i]
   end <- months[i + sample_months - 1]
   print(c(start, end))
-  df <- df_model_in %>% filter(between(date_stamp, as.Date(!!start), as.Date(!!end)))
+  df <- df_model_in %>% filter(between(date_stamp, as.Date(!!start), as.Date(!!end))) # inclusive
 
 
   # 2. Specify training and testing split ---------------------------------------------------------
@@ -337,6 +366,40 @@ preds_all %>% group_by(symbol, date_stamp) %>% summarise(n = n()) %>% filter(n >
 
 
 
+
+
+# Scatter plot of actual vs predicted --------------------------------------------------------------------------------------
+
+preds_all %>% 
+  ggplot(aes(x = .pred, y = fwd_rtn_1m)) + 
+  geom_point(alpha = 0.1) +
+  geom_abline(slope = 1, intercept = 0) + 
+  facet_wrap(vars(date_stamp), scales = 'fixed') +
+  #coord_cartesian(xlim = c(-3, 3), ylim = c(-3, 3)) + 
+  labs(
+    title = 'Actual vs fitted',
+    x = 'Fitted',
+    y = 'Actual'
+  ) +
+  custom_theme1
+
+
+preds_all %>% 
+  mutate(residual = .pred - fwd_rtn_1m) %>% 
+  ggplot(aes(y = residual, x = .pred)) + 
+  geom_point(alpha = 0.1) +
+  geom_hline(yintercept = 0, alpha = 0.3) +
+  facet_wrap(vars(date_stamp), scales = 'fixed') +
+  labs(
+    title = 'Residual vs fitted',
+    x = 'Fitted',
+    y = 'Residual'
+  ) +
+  custom_theme1
+
+
+
+
 # MC_TEST ------------------------------------------------------------------------------------------------------------------
 
 
@@ -367,12 +430,12 @@ positions_mtrx <- data.matrix(positions[, 2:ncol(positions)], rownames.force = F
 positions_mtrx[is.na(positions_mtrx)] <- 0
 
 # Assign long indicator (1) if forecast return > x ('fixed') OR if in top quantile ('relative')  
-position_entry_method <- 'fixed'                                                                         #### PARAMETER ####
+position_entry_method <- 'relative'                                                                         #### PARAMETER ####
 long_filter <- .02                                                                                       #### PARAMETER ####
 qtle_thres <- 0.8                                                                                        #### PARAMETER ####
 
 mtrx_long_filter <- function(x, qntl){
-  x[x > quantile(x, probs = thres, na.rm = TRUE)] <- 1
+  x[x > quantile(x, probs = qntl, na.rm = TRUE)] <- 1
   x[x != 1] <- 0
   return(x)
 }
@@ -530,7 +593,7 @@ ggplot(
 
 
 
-
+# CAGR plot
 mc_backtest %>% 
   ggplot(aes(x = cagr, fill = src, color = src)) +
   geom_density(alpha = 0.3) +
@@ -543,6 +606,7 @@ mc_backtest %>%
   ) +
   custom_theme1
 
+# Drawdown plot
 mc_backtest %>% 
   ggplot(aes(x = max_drawdown, fill = src, color = src)) +
   geom_density(alpha = 0.3) +
@@ -555,6 +619,8 @@ mc_backtest %>%
   ) +
   custom_theme1
 
+
+# Volatility plot
 mc_backtest %>% 
   ggplot(aes(x = volatility, fill = src, color = src)) +
   geom_density(alpha = 0.3) +
@@ -567,28 +633,6 @@ mc_backtest %>%
   ) +
   custom_theme1
 
-
-
-# 11. Scatter plot of actual vs predicted ---------------------------------------------------------
-
-# For Theil Sen line https://stackoverflow.com/questions/48349858/how-can-i-use-theil-sen-method-with-geom-smooth
-sen <- function(..., weights = NULL) {
-  mblm::mblm(...)
-}
-
-preds_all %>% 
-  ggplot(aes(x = .pred, y = fwd_rtn_1m)) + 
-  geom_point() +
-  geom_abline(slope = 1, intercept = 0, colour = 'blue', linetype = 'twodash') +
-  #geom_smooth(method = lm, se = FALSE, size = 0.3, colour = 'blue', linetype = 'twodash') +
-  #geom_smooth(method = sen, se = FALSE, size = 0.3, colour = 'grey') +
-  facet_wrap(vars(date_stamp), scales = 'fixed') +
-  labs(
-    title = 'Actual vs predicted',
-    x = 'Predicted',
-    y = 'Actual'
-  ) +
-  custom_theme1
 
 
 
@@ -612,6 +656,7 @@ var_imp_all %>%
 # TO DO explain interactions
 # https://cran.r-project.org/web/packages/EIX/vignettes/EIX.html
 # https://cran.r-project.org/web/packages/flashlight/vignettes/flashlight.html
+# https://bgreenwell.github.io/fastshap/index.html
 # https://ema.drwhy.ai/
 m <- xgb.model.dt.tree(model = extract_fit_engine(final_fit))
 
@@ -644,11 +689,18 @@ final_model <- final_workflow %>%
 
 saveRDS(final_model, file = "C:/Users/brent/Documents/R/R_import/final_model")
 
+
+# Use model
 loaded_model <- readRDS("C:/Users/brent/Documents/R/R_import/final_model")
 
-loaded_model_preds <- predict(loaded_model, new_data = df_oos_score)
+# OOS scoring data (current month)
+df_oos <- df_features %>% 
+  filter(date_stamp == max(df_features$date_stamp)) %>% 
+  select(-fwd_rtn_1m)
 
-oos_preds <- bind_cols(df_oos_score, loaded_model_preds)
+loaded_model_preds <- predict(loaded_model, new_data = df_oos)
+
+oos_preds <- bind_cols(df_oos, loaded_model_preds)
 
 
 
@@ -656,18 +708,35 @@ oos_preds <- bind_cols(df_oos_score, loaded_model_preds)
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# -------------------------------------------------------------------------------------------------
 # SCRATCH -----------------------------------------------------------------------------------------
 # In months
 
 months <- sort(unique(df_raw$date_stamp))
-total_months <- length(months)
+n_months <- length(months)
 train_months <- 8
 test_months <- 4                                   # this is also the stride
 sample_months <- train_months + test_months        # length of resultant df
 
 
-loops <- floor((total_months - train_months - 1) / test_months) # minus 1 since last month is "live"
-start_month_idx <- total_months - (test_months * loops) - train_months 
+loops <- floor((n_months - train_months - 1) / test_months) # minus 1 since last month is "live"
+start_month_idx <- n_months - (test_months * loops) - train_months 
 
 
 # Loop
@@ -743,3 +812,261 @@ cutoff <- function(x){
   return(x)
 }
 t(apply(X = m, MARGIN = 1, FUN = cutoff))
+
+
+
+
+
+
+
+# Custom scale function ---------------------------------------------------------------------------
+rank_scale <- function(x){
+  x1 <- dplyr::dense_rank(x)
+  res <- ( x1 - mean(1:max(x1)) ) / sd(1:max(x1) )
+  return(res)
+}
+
+# Example
+stock_ <- c('a','b','c','d','e','f','g','h','i','j','k')
+sector_ <- c('aa','aa','aa','bb','bb','bb','bb','cc','cc','cc','cc')
+industry_ <- c('J','J','J','K','K','L','L','M','M','N','N')
+rtn_ <- c(0.2,0.15,0.1,0.05,0.07,0.07,0.09,-0.05,-0.04,-0.04,-0.03)
+
+dat <- data.frame(stock = stock_, sector = sector_, industry = industry_, rtn = rtn_)
+
+df <- dat %>% 
+  mutate(mkt_rtn = round(mean(rtn),3)) %>% 
+  group_by(sector) %>%
+  mutate(sector_rtn = mean(rtn)) %>% 
+  group_by(industry) %>%
+  mutate(industry_rtn = mean(rtn)) %>% 
+  ungroup() %>% 
+  mutate(
+    sector_exc_mkt = sector_rtn - mkt_rtn,
+    industry_exc_sector = industry_rtn  - sector_rtn,
+    stock_exc_industry = rtn - industry_rtn,
+    check = mkt_rtn + sector_exc_mkt + industry_exc_sector + stock_exc_industry - rtn
+  )
+
+df <- df %>% mutate(sec_rtn_rs = rank_scale(sector_rtn))
+df <- df %>% mutate(sec_rtn_sc = scale(sector_rtn))
+df <- df %>% mutate(ind_rtn_rs = rank_scale(industry_rtn))
+df <- df %>% mutate(ind_rtn_sc = scale(industry_rtn))      # USE THIS, MEAN IS 0, SD IS 1
+df <- df %>% mutate(ind_rtn_sc1 = scale(ind_rtn_rs)) 
+df <- df %>% mutate(stock_resid_rs = rank_scale(stock_exc_industry))
+df <- df %>% mutate(stock_resid_sc = scale(stock_exc_industry))
+
+
+#round(mean(df$ind_rtn_rs), 3)
+#round(mean(df$ind_rtn_sc), 3) # USE THIS, MEAN IS 0, SD IS 1
+
+round(colMeans(df[, !names(df) %in% c("stock","sector","industry")]), 3)
+round(sapply(df[, !names(df) %in% c("stock","sector","industry")], sd), 3)
+
+
+
+
+
+
+
+# 52 week high / percent positive month returns / return after high -------------------------------
+library(slider)
+
+perc_range <- function(x){
+  current <- tail(x, 1)
+  min <- min(x)
+  range <- max(x) - min
+  res <- ( current - min ) / range
+  return(res)
+}
+
+perc_pos<- function(x){
+  x <- x[!is.na(x)]
+  res <- sum(x > 0) / length(x)
+  return(res)
+}
+
+rtn_from_high <- function(x){
+  current <- tail(x, 1)
+  max <- max(x)
+  res <- log( current / max )
+  return(res)
+}
+
+#df <- data.frame(
+#  symbol = rep('A', 12), 
+#  date_stamp = seq(as.Date('2021-01-01'), as.Date('2021-12-01'), by = "month"),
+#  adjusted_close = c(150.7,159.44,139.32,130.36,132.33,119.27,127.56,118.77,134.1,128.25,121.55,138.35),
+#  rtn_log_1m = c(-0.04,0.05,-0.13,-0.06,0.01,-0.10,0.06,0.07,0.12,0.04,0.05,0.12)
+#)
+#
+#perc_range(df$adjusted_close)
+#perc_pos(df$rtn_log_1m)
+#rtn_from_high(df$adjusted_close)
+
+pr12 <-  c('0.75','0.80','0.5','0.4')    # perc_range_12m
+pp12 <-  c('0.75','0.70','0.5','0.4')    # perc_pos_12m
+ra12s <- c('0.05','0.07','0.2','0.0')   # rtn_ari_12m_sct
+ra12i <- c('0.05','0.07','0.2','0.0')   # rtn_ari_12m_ind
+r1 <- sprintf("perc_range_12m > %s & perc_pos_12m > %s & rtn_ari_12m_sct > %s & rtn_ari_12m_ind > %s", pr12[1], pp12[1], ra12s[1], ra12i[1])
+r2 <- sprintf("perc_range_12m > %s & perc_pos_12m > %s & rtn_ari_12m_sct > %s & rtn_ari_12m_ind > %s", pr12[2], pp12[2], ra12s[2], ra12i[2])
+r3 <- sprintf("perc_range_12m < %s & perc_pos_12m < %s & rtn_ari_12m_sct < %s & rtn_ari_12m_ind < %s", pr12[3], pp12[3], ra12s[3], ra12i[3])
+r4 <- sprintf("perc_range_12m < %s & perc_pos_12m < %s & rtn_ari_12m_sct < %s & rtn_ari_12m_ind < %s", pr12[4], pp12[4], ra12s[4], ra12i[4])
+
+# Trading strategy
+df_test <- df_raw %>% 
+  group_by(symbol) %>%
+  #filter(symbol %in% c('A','AA')) %>% 
+  mutate(
+    fwd_rtn_1m = lead((adjusted_close-lag(adjusted_close))/lag(adjusted_close)),
+    perc_range_12m = slide_dbl(.x = adjusted_close, .f = perc_range, .before = 11, .complete = TRUE),
+    perc_pos_12m = slide_dbl(.x = rtn_log_1m, .f = perc_pos, .before = 11, .complete = TRUE),
+    rtn_from_high_12m = slide_dbl(.x = adjusted_close, .f = rtn_from_high, .before = 11, .complete = TRUE)
+  ) %>% 
+  ungroup() %>% 
+  group_by(sector) %>%
+  mutate(
+    rtn_ari_3m_sct = mean(rtn_ari_3m),
+    rtn_ari_12m_sct = mean(rtn_ari_12m)
+  ) %>% 
+  ungroup() %>% 
+  group_by(industry) %>%
+  mutate(
+    rtn_ari_3m_ind = mean(rtn_ari_3m),
+    rtn_ari_12m_ind = mean(rtn_ari_12m)
+  ) %>% 
+  ungroup() %>%
+  mutate(
+    ind1 = if_else(eval(parse(text = r1)), 1, NaN),
+    ind2 = if_else(eval(parse(text = r2)), 1, NaN),
+    ind3 = if_else(eval(parse(text = r3)), -1, NaN),
+    ind4 = if_else(eval(parse(text = r4)), -1, NaN),
+    fwd_rtn1 = fwd_rtn_1m * ind1,
+    fwd_rtn2 = fwd_rtn_1m * ind2,
+    fwd_rtn3 = fwd_rtn_1m * ind3,
+    fwd_rtn4 = fwd_rtn_1m * ind4
+  ) %>%
+  select(
+    symbol, date_stamp, adjusted_close, 
+    ind1, ind2, ind3, ind4, 
+    fwd_rtn1, fwd_rtn2, fwd_rtn3, fwd_rtn4,
+    fwd_rtn_1m, rtn_log_1m, rtn_ari_3m_sct, rtn_ari_12m_sct, rtn_ari_3m_ind, 
+    rtn_ari_12m_ind, perc_range_12m, perc_pos_12m, rtn_from_high_12m
+  ) 
+
+
+# Aggregate trading rule outcome to portfolio
+df_trades <- df_test %>% 
+  group_by(date_stamp) %>% 
+  summarise(
+    strat_rtn_lag1 = mean(fwd_rtn1, na.rm = TRUE), n1 = sum(!is.na(fwd_rtn1)),
+    strat_rtn_lag2 = mean(fwd_rtn2, na.rm = TRUE), n2 = sum(!is.na(fwd_rtn2)),
+    strat_rtn_lag3 = mean(fwd_rtn3, na.rm = TRUE), n3 = sum(!is.na(fwd_rtn3)),
+    strat_rtn_lag4 = mean(fwd_rtn4, na.rm = TRUE), n4 = sum(!is.na(fwd_rtn4))
+  ) %>% 
+  mutate(
+    strat_rtn1 = lag(strat_rtn_lag1, n = 1, default = 0),
+    strat_rtn2 = lag(strat_rtn_lag2, n = 1, default = 0),
+    strat_rtn3 = lag(strat_rtn_lag3, n = 1, default = 0),
+    strat_rtn4 = lag(strat_rtn_lag4, n = 1, default = 0)
+  ) %>% 
+  filter(date_stamp >= as.Date('2014-10-31')) %>%
+  replace_na(list(
+    strat_rtn_lag1 = 0, strat_rtn_lag2 = 0, strat_rtn_lag3 = 0, strat_rtn_lag4 = 0, 
+    strat_rtn1 = 0, strat_rtn2 = 0, strat_rtn3 = 0, strat_rtn4 = 0
+  )) %>% 
+  mutate(
+    strat_value1 = cumprod(1 + strat_rtn1),
+    strat_value2 = cumprod(1 + strat_rtn2),
+    strat_value3 = cumprod(1 + strat_rtn3),
+    strat_value4 = cumprod(1 + strat_rtn4)
+  )
+
+
+# Stack data
+df_trades1 <- df_trades %>% 
+  select(date_stamp, strat_value1, strat_value2, strat_value3, strat_value4) %>% 
+  pivot_longer(
+    cols = c(strat_value1, strat_value2, strat_value3, strat_value4),
+    names_to = 'label', 
+    values_to = 'strat_value'
+  ) %>% 
+  arrange(label, date_stamp)
+
+
+# Prepare S&P500 data for plotting
+sp5_monthly <- sp5_raw_df %>% 
+  group_by(date_stamp = floor_date(date_stamp, "month")) %>% 
+  mutate(date_stamp = ceiling_date(date_stamp, unit = "month") - 1) %>% 
+  summarise(
+    adjusted_close = last(adjusted_close),
+    volume = mean(volume)
+  ) %>% 
+  ungroup() %>% 
+  filter(date_stamp >= as.Date(min(df_trades$date_stamp)))
+
+sp5_monthly$strat_value <- sp5_monthly$adjusted_close / sp5_monthly$adjusted_close[1]
+sp5_monthly$label <- 'S&P 500 index'
+
+
+# Stack data
+data <- bind_rows(
+  sp5_monthly[c('date_stamp', 'label','strat_value')], 
+  df_trades1[c('date_stamp', 'label','strat_value')]
+  )
+
+
+# Plot
+ggplot(data, aes(x = date_stamp, y = strat_value, linetype = label)) + 
+  geom_line() +
+  geom_text(data = data[data$date_stamp == max(data$date_stamp),], 
+            aes(label = label, x = date_stamp + 365/4,  y = strat_value), size = 2.5) +
+  #facet_wrap(vars(label)) +
+  labs(x = '',
+       y = '',
+       title = 'S&P 500 and custom momentum strategy returns',
+       subtitle = 'Strategy formation rules described below',
+       caption = "Source: IEX Cloud and Alpha Vantage via 'Stock Master' database") +
+  scale_y_continuous(breaks = seq(-2,4, 0.5)) +
+  scale_x_date(date_breaks = '1 years',
+               date_labels = '%Y') + 
+  custom_theme1 + 
+  #theme(legend.position = c(0.1, 0.8)) +
+  theme(legend.position = 'none')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Sliding window test -----------------------------------------------------------------------------
+for (i in seq(from = start_month_idx, by = test_months, length.out = loops)) {
+  start <- months[i]
+  end <- months[i + sample_months - 1]
+  print(c(start, end))
+}
+
+
+# LINEX loss function
+# https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3973086
+library(ggplot2)
+alpha <- 0.5
+y <- -1
+linex <- function(x) exp(alpha*(y-x))-alpha*(y-x)-1
+ggplot(data = data.frame(x = 0), mapping = aes(x = x)) + 
+  stat_function(fun = linex) + xlim(-2,2)

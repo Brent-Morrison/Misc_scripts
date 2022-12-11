@@ -20,7 +20,7 @@ pc = 0.2                #  Percent drawdown for binary market in/out indicator c
 fr = -0.025             #  Forward return for binary market in/out indicator cutoff
 s.date = as.Date("1945-01-01")
 e.date = as.Date("2021-05-01")
-quandl_api_key("")
+quandl_api_key(config$quandl)
 qndlm = c("NAHB/NWFHMI.1",  #  NAHB / Wells Fargo National Housing Market Index
           "ISM/MAN_NEWORDERS.5")  #  ISM Manufacturing New Orders Index
 fredd = c("DTB3", "DGS2", "DGS10")
@@ -77,7 +77,7 @@ econ.m3 <- econ.w1 %>%
   rename("date" = "month") 
 
 # Get quandl monthy data
-econ.m4 <- tq_get(qndlm,get="quandl",from="1985-03-01") %>%
+econ.m4 <- tq_get(qndlm, get="quandl", from="1985-03-01") %>%
   mutate(price = if_else(is.na(value), index, value), 
          date = floor_date(if_else(is.na(date), month, date),"month")) %>%
   select(symbol, date, price) %>% spread(symbol, price) %>%

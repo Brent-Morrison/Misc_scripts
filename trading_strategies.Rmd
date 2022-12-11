@@ -1,0 +1,169 @@
+---
+title: "Trading-strategies"
+author: "Brent Morrison"
+date: "2022-02-22"
+output:
+  html_document:
+    fig_caption: yes
+    theme: spacelab 
+    highlight: pygments
+    toc: TRUE
+    toc_depth: 3
+    number_sections: FALSE
+    code_folding: hide
+    toc_float:
+      smooth_scroll: FALSE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error = FALSE)
+```
+
+Situation
+
+Complication
+
+Question
+
+Answer
+
+  
+
+```{r}
+# Libraries
+library(dplyr)
+library(tidyr)
+library(DBI)
+library(RPostgres)
+library(lubridate)
+
+data("stock_data")
+fundamental_raw <- stock_data
+rm(stock_data)
+
+# Set default theme
+def_theme1 <- theme_minimal() +
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.9,0.9),
+    legend.background = element_blank(),
+    legend.key = element_blank(),
+    plot.caption = element_text(size = 8, color = "grey55", face = 'italic'), 
+    axis.title.y = element_text(size = 8, color = "darkslategrey"),
+    axis.title.x = element_text(size = 8, color = "darkslategrey"),
+    axis.text.y = element_text(size = 7, color = "darkslategrey"),
+    axis.text.x = element_text(size = 7, color = "darkslategrey")
+    )
+
+config <- jsonlite::read_json('C:/Users/brent/Documents/VS_Code/postgres/postgres/config.json')
+
+con <- dbConnect(
+  RPostgres::Postgres(),
+  host      = 'localhost',
+  port      = '5432',
+  dbname    = 'stock_master',
+  user      = 'postgres',
+  password  = config$pg_password
+)
+
+
+```
+
+## The data  
+
+jhgjkhghj
+
+```{r}
+
+# Stock data
+qry_test <- "select * from access_layer.return_attributes where date_stamp > current_date - interval '20 years' order by 1, 2"
+qry_send <- dbSendQuery(conn = con, statement = qry_test) 
+df_raw <- dbFetch(qry_send)
+
+# S&P500 data
+sp5_sql <- "select * from access_layer.daily_sp500_ts_vw"
+sp5_send <- dbSendQuery(conn = con, statement = sp5_sql) 
+sp5_raw_df <- dbFetch(sp5_send)
+
+vix <- tq_get("VIXCLS", get = "economic.data")
+```
+
+
+The Theil-Sen regression seems to fit the data better (at least on a rough eyeballing of the plot), fitting the dense cluster of data points more closely. As expected, the slope of the line is positive, indicating all else equal, a higher valuation given higher return on equity.  
+
+There is a hint of non-linearity in the relationship between the price / book ratio and ROE, and this is captured by the GAM.
+
+
+## Unpooled analysis  
+
+Stocks with similar characteristics are grouped into sectors.  It is reasonable to expect that sectors will have different characteristics giving rise to differing relationships between ROE and valuation.  Different sectors may have different growth prospects and risk profiles for example. 
+
+With this in mind, the plot below shows the same regression models estimated above (the GAM has been removed), applied individually to each sector.  
+```{r}
+# Model coefficients for OLS and Thiel Sen regression
+model_coefs <- data %>% 
+  group_by(date_stamp, sector) %>% 
+  filter(n() > 1) %>% 
+  nest() %>% 
+  mutate(
+    fit_ols = purrr::map(.x = data, .f = ~lm(log_pb ~ roe, data = .x)),
+    fit_ts = purrr::map(.x = data, .f = ~mblm(log_pb ~ roe, data = .x, repeated = TRUE)),
+    int_ols = purrr::map_dbl(.x = fit_ols, .f = function(x) coef(summary(x))['(Intercept)', 'Estimate']),
+    slp_ols = purrr::map_dbl(.x = fit_ols, .f = function(x) coef(summary(x))['roe', 'Estimate']),
+    int_ts = purrr::map_dbl(.x = fit_ts, .f = function(x) coef(summary(x))['(Intercept)', 'Estimate']),
+    slp_ts = purrr::map_dbl(.x = fit_ts, .f = function(x) coef(summary(x))['roe', 'Estimate']),
+    x_min = purrr::map_dbl(.x = data, .f = ~min(.x$roe)),
+    x_max = purrr::map_dbl(.x = data, .f = ~max(.x$roe)),
+    y_min = int_ts + slp_ts * x_min,
+    y_max = int_ts + slp_ts * x_max
+  ) %>% 
+  select(-fit_ols, -fit_ts, -data) %>%
+  ungroup()
+
+# Predictions
+data <- merge(data, model_coefs, by.x = 'sector', by.y = 'sector')
+data$ts_ind_pred <- data$int_ts + data$roe * data$slp_ts
+data$ols_ind_pred <- data$int_ols + data$roe * data$slp_ols
+data <- subset(data, select = -c(date_stamp.y, x_min, y_min, x_max, y_max))
+names(data)[names(data) == 'date_stamp.x'] <- 'date_stamp'
+
+# Facet labeller
+sector_labels <- as_labeller(c(
+  "1" = "Industrials",
+  "2" = "Technology",
+  "3" = "Consumer Defensive",
+  "4" = "Consumer Cyclical",
+  "5" = "Financial Services",
+  "6" = "Utilities",
+  "7" = "Healthcare",
+  "8" = "Energy",
+  "9" = "Business Services",
+  "10" = "Real Estate",
+  "11" = "Basic Materials"))
+
+# Plot
+p1 <- data %>% 
+  ggplot(aes(x = roe, y = log_pb)) +
+  facet_wrap(~reorder(sector, as.numeric(sector)), ncol = 4, scales = 'free', labeller = sector_labels) + 
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = lm, se = FALSE, size = 0.6, color = "#3366FF") + 
+  geom_segment(
+    aes(x = x_min, xend = x_max, y = y_min, yend = y_max),
+    alpha = 0.6,
+    data = filter(model_coefs, date_stamp == as.Date('2021-06-30')),
+    colour = 'grey40'
+  ) +
+  labs(
+    title = 'Log book / price ratio versus return on equity by industry',
+    subtitle = 'Estimated with independent OLS (blue) and independent Theil-Sen (grey)',
+    x = 'Return on equity',
+    y = 'Log price / book ratio'
+  ) +
+  def_theme1
+
+p1
+```
+
+
+
+
