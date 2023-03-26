@@ -1,7 +1,7 @@
 ---
 title: "Trading-strategies"
 author: "Brent Morrison"
-date: "2022-02-22"
+date: "`r Sys.Date()`"
 output:
   html_document:
     fig_caption: yes
@@ -21,25 +21,26 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error = FAL
 
 Situation
 
+https://www.statestreet.com/web/insights/articles/documents/state-street-ssa-event-time-full-report-050422_4728159.GBL.pdf
+
 Complication
 
 Question
 
 Answer
 
-  
-
 ```{r}
 # Libraries
 library(dplyr)
 library(tidyr)
+library(slider)
 library(DBI)
 library(RPostgres)
 library(lubridate)
+library(ggplot2)
+library(cowplot)
+library(tidyquant)
 
-data("stock_data")
-fundamental_raw <- stock_data
-rm(stock_data)
 
 # Set default theme
 def_theme1 <- theme_minimal() +
@@ -55,7 +56,33 @@ def_theme1 <- theme_minimal() +
     axis.text.x = element_text(size = 7, color = "darkslategrey")
     )
 
+
+# Custom functions
+perc_range <- function(x){
+  current <- tail(x, 1)
+  min <- min(x)
+  range <- max(x) - min
+  res <- ( current - min ) / range
+  return(res)
+}
+
+perc_pos<- function(x){
+  x <- x[!is.na(x)]
+  res <- sum(x > 0) / length(x)
+  return(res)
+}
+
+rtn_from_high <- function(x){
+  current <- tail(x, 1)
+  max <- max(x)
+  res <- log( current / max )
+  return(res)
+}
+
+
+# Database connection
 config <- jsonlite::read_json('C:/Users/brent/Documents/VS_Code/postgres/postgres/config.json')
+
 
 con <- dbConnect(
   RPostgres::Postgres(),
@@ -65,13 +92,11 @@ con <- dbConnect(
   user      = 'postgres',
   password  = config$pg_password
 )
-
-
 ```
 
-## The data  
+## The data
 
-jhgjkhghj
+Text here
 
 ```{r}
 
@@ -89,81 +114,183 @@ vix <- tq_get("VIXCLS", get = "economic.data")
 ```
 
 
-The Theil-Sen regression seems to fit the data better (at least on a rough eyeballing of the plot), fitting the dense cluster of data points more closely. As expected, the slope of the line is positive, indicating all else equal, a higher valuation given higher return on equity.  
-
-There is a hint of non-linearity in the relationship between the price / book ratio and ROE, and this is captured by the GAM.
-
-
-## Unpooled analysis  
-
-Stocks with similar characteristics are grouped into sectors.  It is reasonable to expect that sectors will have different characteristics giving rise to differing relationships between ROE and valuation.  Different sectors may have different growth prospects and risk profiles for example. 
-
-With this in mind, the plot below shows the same regression models estimated above (the GAM has been removed), applied individually to each sector.  
 ```{r}
-# Model coefficients for OLS and Thiel Sen regression
-model_coefs <- data %>% 
-  group_by(date_stamp, sector) %>% 
-  filter(n() > 1) %>% 
-  nest() %>% 
-  mutate(
-    fit_ols = purrr::map(.x = data, .f = ~lm(log_pb ~ roe, data = .x)),
-    fit_ts = purrr::map(.x = data, .f = ~mblm(log_pb ~ roe, data = .x, repeated = TRUE)),
-    int_ols = purrr::map_dbl(.x = fit_ols, .f = function(x) coef(summary(x))['(Intercept)', 'Estimate']),
-    slp_ols = purrr::map_dbl(.x = fit_ols, .f = function(x) coef(summary(x))['roe', 'Estimate']),
-    int_ts = purrr::map_dbl(.x = fit_ts, .f = function(x) coef(summary(x))['(Intercept)', 'Estimate']),
-    slp_ts = purrr::map_dbl(.x = fit_ts, .f = function(x) coef(summary(x))['roe', 'Estimate']),
-    x_min = purrr::map_dbl(.x = data, .f = ~min(.x$roe)),
-    x_max = purrr::map_dbl(.x = data, .f = ~max(.x$roe)),
-    y_min = int_ts + slp_ts * x_min,
-    y_max = int_ts + slp_ts * x_max
-  ) %>% 
-  select(-fit_ols, -fit_ts, -data) %>%
-  ungroup()
+pr12 <-  c('0.75','0.80','0.5','0.4')   # perc_range_12m
+pp12 <-  c('0.75','0.70','0.5','0.4')   # perc_pos_12m
+ra12s <- c('0.05','0.07','0.2','0.0')   # rtn_ari_12m_sct
+ra12i <- c('0.05','0.07','0.2','0.0')   # rtn_ari_12m_ind
 
-# Predictions
-data <- merge(data, model_coefs, by.x = 'sector', by.y = 'sector')
-data$ts_ind_pred <- data$int_ts + data$roe * data$slp_ts
-data$ols_ind_pred <- data$int_ols + data$roe * data$slp_ols
-data <- subset(data, select = -c(date_stamp.y, x_min, y_min, x_max, y_max))
-names(data)[names(data) == 'date_stamp.x'] <- 'date_stamp'
-
-# Facet labeller
-sector_labels <- as_labeller(c(
-  "1" = "Industrials",
-  "2" = "Technology",
-  "3" = "Consumer Defensive",
-  "4" = "Consumer Cyclical",
-  "5" = "Financial Services",
-  "6" = "Utilities",
-  "7" = "Healthcare",
-  "8" = "Energy",
-  "9" = "Business Services",
-  "10" = "Real Estate",
-  "11" = "Basic Materials"))
-
-# Plot
-p1 <- data %>% 
-  ggplot(aes(x = roe, y = log_pb)) +
-  facet_wrap(~reorder(sector, as.numeric(sector)), ncol = 4, scales = 'free', labeller = sector_labels) + 
-  geom_point(alpha = 0.3) +
-  geom_smooth(method = lm, se = FALSE, size = 0.6, color = "#3366FF") + 
-  geom_segment(
-    aes(x = x_min, xend = x_max, y = y_min, yend = y_max),
-    alpha = 0.6,
-    data = filter(model_coefs, date_stamp == as.Date('2021-06-30')),
-    colour = 'grey40'
-  ) +
-  labs(
-    title = 'Log book / price ratio versus return on equity by industry',
-    subtitle = 'Estimated with independent OLS (blue) and independent Theil-Sen (grey)',
-    x = 'Return on equity',
-    y = 'Log price / book ratio'
-  ) +
-  def_theme1
-
-p1
+r1 <- sprintf("perc_range_12m > %s & perc_pos_12m > %s & rtn_ari_12m_sct > %s & rtn_ari_12m_ind > %s", pr12[1], pp12[1], ra12s[1], ra12i[1])
+r2 <- sprintf("perc_range_12m > %s & perc_pos_12m > %s & rtn_ari_12m_sct > %s & rtn_ari_12m_ind > %s", pr12[2], pp12[2], ra12s[2], ra12i[2])
+r3 <- sprintf("perc_range_12m < %s & perc_pos_12m < %s & rtn_ari_12m_sct < %s & rtn_ari_12m_ind < %s", pr12[3], pp12[3], ra12s[3], ra12i[3])
+r4 <- sprintf("perc_range_12m < %s & perc_pos_12m < %s & rtn_ari_12m_sct < %s & rtn_ari_12m_ind < %s", pr12[4], pp12[4], ra12s[4], ra12i[4])
 ```
 
 
 
+```{r}
+# Trading strategy
+df1 <- df_raw %>% 
+  group_by(symbol) %>%
+  #filter(symbol %in% c('A','AA')) %>% 
+  mutate(
+    fwd_rtn_1m = lead((adjusted_close-lag(adjusted_close))/lag(adjusted_close)),
+    perc_range_12m = slide_dbl(.x = adjusted_close, .f = perc_range, .before = 11, .complete = TRUE),
+    perc_pos_12m = slide_dbl(.x = rtn_log_1m, .f = perc_pos, .before = 11, .complete = TRUE),
+    rtn_from_high_12m = slide_dbl(.x = adjusted_close, .f = rtn_from_high, .before = 11, .complete = TRUE)
+  ) %>% 
+  ungroup() %>% 
+  group_by(sector) %>%
+  mutate(
+    rtn_ari_3m_sct = mean(rtn_ari_3m),
+    rtn_ari_12m_sct = mean(rtn_ari_12m)
+  ) %>% 
+  ungroup() %>% 
+  group_by(industry) %>%
+  mutate(
+    rtn_ari_3m_ind = mean(rtn_ari_3m),
+    rtn_ari_12m_ind = mean(rtn_ari_12m)
+  ) %>% 
+  ungroup() %>%
+  mutate(
+    ind1 = if_else(eval(parse(text = r1)), 1, NaN), # use NaN for failing to meet trading rule, 0 disrupts mean
+    ind2 = if_else(eval(parse(text = r2)), 1, NaN),
+    ind3 = if_else(eval(parse(text = r3)), -1, NaN),
+    ind4 = if_else(eval(parse(text = r4)), -1, NaN),
+    fwd_rtn1 = fwd_rtn_1m * ind1,
+    fwd_rtn2 = fwd_rtn_1m * ind2,
+    fwd_rtn3 = fwd_rtn_1m * ind3,
+    fwd_rtn4 = fwd_rtn_1m * ind4
+  ) %>%
+  select(
+    symbol, date_stamp, adjusted_close, 
+    ind1, ind2, ind3, ind4, 
+    fwd_rtn1, fwd_rtn2, fwd_rtn3, fwd_rtn4,
+    fwd_rtn_1m, rtn_log_1m, rtn_ari_3m_sct, rtn_ari_12m_sct, rtn_ari_3m_ind, 
+    rtn_ari_12m_ind, perc_range_12m, perc_pos_12m, rtn_from_high_12m
+  ) 
+
+
+# Aggregate trading rule outcome to portfolio
+df2 <- df1 %>% 
+  group_by(date_stamp) %>% 
+  summarise(
+    strat_rtn_lag1 = mean(fwd_rtn1, na.rm = TRUE), n1 = sum(!is.na(fwd_rtn1)),
+    strat_rtn_lag2 = mean(fwd_rtn2, na.rm = TRUE), n2 = sum(!is.na(fwd_rtn2)),
+    strat_rtn_lag3 = mean(fwd_rtn3, na.rm = TRUE), n3 = sum(!is.na(fwd_rtn3)),
+    strat_rtn_lag4 = mean(fwd_rtn4, na.rm = TRUE), n4 = sum(!is.na(fwd_rtn4))
+  ) %>% 
+  mutate(
+    strat_rtn1 = lag(strat_rtn_lag1, n = 1, default = 0),
+    strat_rtn2 = lag(strat_rtn_lag2, n = 1, default = 0),
+    strat_rtn3 = lag(strat_rtn_lag3, n = 1, default = 0),
+    strat_rtn4 = lag(strat_rtn_lag4, n = 1, default = 0)
+  ) %>% 
+  filter(date_stamp >= as.Date('2014-10-31')) %>%
+  replace_na(list(
+    strat_rtn_lag1 = 0, strat_rtn_lag2 = 0, strat_rtn_lag3 = 0, strat_rtn_lag4 = 0, 
+    strat_rtn1 = 0, strat_rtn2 = 0, strat_rtn3 = 0, strat_rtn4 = 0
+  )) %>% 
+  mutate(
+    strat_value1 = cumprod(1 + strat_rtn1),
+    strat_value2 = cumprod(1 + strat_rtn2),
+    strat_value3 = cumprod(1 + strat_rtn3),
+    strat_value4 = cumprod(1 + strat_rtn4)
+  )
+
+
+# Stack data
+df3 <- df2 %>% 
+  select(date_stamp, strat_value1, strat_value2, strat_value3, strat_value4) %>% 
+  pivot_longer(
+    cols = c(strat_value1, strat_value2, strat_value3, strat_value4),
+    names_to = 'label', 
+    values_to = 'strat_value'
+  ) %>% 
+  arrange(label, date_stamp)
+
+
+# Prepare S&P500 data for plotting
+sp5_monthly <- sp5_raw_df %>% 
+  group_by(date_stamp = floor_date(date_stamp, "month")) %>% 
+  mutate(date_stamp = ceiling_date(date_stamp, unit = "month") - 1) %>% 
+  summarise(
+    adjusted_close = last(adjusted_close),
+    volume = mean(volume)
+  ) %>% 
+  ungroup() %>% 
+  filter(date_stamp >= as.Date(min(df2$date_stamp)))
+
+sp5_monthly$strat_value <- sp5_monthly$adjusted_close / sp5_monthly$adjusted_close[1]
+sp5_monthly$label <- 'S&P 500 index'
+
+
+# Stack data
+data <- bind_rows(
+  sp5_monthly[c('date_stamp', 'label','strat_value')], 
+  df3[c('date_stamp', 'label','strat_value')]
+  )
+```
+
+```{r}
+ p1 <- ggplot(data, aes(x = date_stamp, y = strat_value, linetype = label)) + 
+  geom_line() +
+  geom_text(data = data[data$date_stamp == max(data$date_stamp),], 
+            aes(label = label, x = date_stamp + 365/4,  y = strat_value), size = 2.5) +
+  #facet_wrap(vars(label)) +
+  labs(x = '',
+       y = 'Strategy returns',
+       title = 'S&P 500 and custom momentum strategy returns',
+       subtitle = 'Strategy formation rules described below',
+       caption = "Source: IEX Cloud and Alpha Vantage via 'Stock Master' database") +
+  scale_y_continuous(breaks = seq(-2,4, 0.5)) +
+  scale_x_date(date_breaks = '1 years',
+               date_labels = '%Y') + 
+  def_theme1 + 
+  #theme(legend.position = c(0.1, 0.8)) +
+  theme(legend.position = 'none')
+
+p1
+```
+
+```{r}
+vix_monthly <- vix %>% 
+  fill(price) %>% 
+  group_by(date_stamp = floor_date(date, "month")) %>% 
+  mutate(date_stamp = ceiling_date(date_stamp, unit = "month") - 1) %>% 
+  summarise(close = last(price))
+```
+
+```{r}
+p2 <-  filter(vix_monthly, date_stamp >= as.Date('2014-10-31'), date_stamp <= max(data$date_stamp)) %>%
+  ggplot(aes(x = date_stamp, y = close)) + 
+  geom_line() +
+  geom_text(data = vix_monthly[vix_monthly$date_stamp == max(data$date_stamp),], 
+            aes(label = close, x = date_stamp + 365/4), size = 2.5) +
+  labs(x = '',
+       y = 'VIX Index',
+       title = '',
+       subtitle = '',
+       caption = "Source: Nasdaq / Quandl") +
+  scale_y_continuous(breaks = seq(0, 60, 15)) +
+  scale_x_date(date_breaks = '1 years',
+               date_labels = '%Y') + 
+  def_theme1 + 
+  theme(legend.position = 'none')
+
+p2
+```
+
+```{r}
+plot_grid(p1, p2, ncol = 1, align = 'v', axis = 'lr')
+```
+
+```{r}
+library(patchwork)
+p1 + p2 + plot_layout(ncol = 1)
+```
+
+```{r}
+dbDisconnect(con)
+```
 

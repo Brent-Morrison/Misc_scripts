@@ -496,9 +496,11 @@ ggplot(data = coefs, aes(x = date_stamp, y = slp_ols_scaled))+
 
 
 
-# -------------------------------------
+# --------------------------------------------------------------------------------------------------------------------------
+#
 # 3. Quintile returns to each factor
-# -------------------------------------
+#
+# --------------------------------------------------------------------------------------------------------------------------
 
 fctr_data <- prices %>% 
   filter(between(fwd_rtn_1m, -2, 2)) %>% 
@@ -556,9 +558,11 @@ xxx<-prices %>% filter(is.na(qntl_vol_ari_60d))
 
 
 
-# -------------------------------------
+# --------------------------------------------------------------------------------------------------------------------------
+#
 # 99. Scratch
-# -------------------------------------
+#
+# --------------------------------------------------------------------------------------------------------------------------
 
 
 # Prove TS regr does not work with scaled variable
@@ -668,21 +672,6 @@ D1 <- plgp::distance(X)
 sum(D - D1) == 0
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # Jitter
 eps <- sqrt(.Machine$double.eps)
 sigma <- exp(-D) + diag(eps, n)
@@ -714,7 +703,7 @@ abline(0, 1, col = 'gray')
 
 
 
-#------------
+# --------------------------------------------------------------------------------------------------------------------------
 
 library('data.table')
 
@@ -785,12 +774,15 @@ persp(x, x, matrix(Y[2,], ncol=nx), theta=-30, phi=30, xlab="x1", ylab="x2", zla
 
 
 
-
-# Bendigo census -----------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------------------------------
+#
+# Bendigo census
 # https://www.abs.gov.au/websitedbs/D3310114.nsf/home/Digital+Boundaries
 # https://dbr.abs.gov.au/
 # https://geopandas.org/en/stable/docs/user_guide/io.html
 # https://geopandas.org/en/stable/gallery/polygon_plotting_with_folium.html
+#
+# --------------------------------------------------------------------------------------------------------------------------
 
 library('data.table')
 
@@ -821,3 +813,162 @@ data <- rbindlist(df_to_list)
 saveRDS(data, file = 'bendigo_census.rda')
 
 dat <- readRDS('bendigo_census.rda')
+
+
+
+
+
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+#
+# Varying coefficients models
+# https://github.com/Brent-Morrison/hugo_website/blob/master/content/post/2021-09-20-momentum-analysis.Rmd
+#
+# https://stackoverflow.com/questions/41201629/how-to-select-the-last-day-of-the-month-in-r
+# https://stackoverflow.com/questions/52332590/group-by-week-month-in-data-table
+# 
+# --------------------------------------------------------------------------------------------------------------------------
+library(tidyquant)
+library(varycoef)
+library(data.table)
+library(RollingWindow)
+
+
+# Stock data
+if (file.exists("stocks_sample.csv")) {
+  d0 <- read.csv("stocks_sample.csv")
+} else {
+  d0 <- tq_get(c("^GSPC", "^VIX", "WMT", "LUV"), get = "stock.prices", from = "1995-01-01")
+  write.csv(d0, "stocks_sample.csv")
+}
+
+d <- as.data.table(d0)
+d[, date_stamp := as.Date(date, "%Y-%m-%d")]
+d[, mon_date := as.Date(format(date_stamp ,"%Y-%m-01"))]
+d[, rtn_ari_1d := (adjusted - shift(adjusted, 1, type = 'lag')) / adjusted, by = symbol]
+d[, rtn_log_1d := log(adjusted / shift(adjusted, 1, type = 'lag')), by = symbol]
+d[, vol_ari_20d := RollingStd(rtn_ari_1d, window = 20, na_method = 'window') * sqrt(252), by = symbol]
+
+m <- d[, .(close        = last(adjusted), 
+           vol_ari_20d  = last(vol_ari_20d), 
+           rtn_log_1m   = sum(rtn_log_1d)), 
+       by = .(symbol, mon_date)]
+
+m[, fwd_rtn_1m  := log(shift(close, 1, type = 'lead')/ close), by = symbol]
+m[, rtn_log_3m  := log(close / shift(close, 3, type = 'lag')), by = symbol]
+m[, rtn_log_12m := log(close / shift(close, 12, type = 'lag')), by = symbol]
+
+m <- m[complete.cases(m), ]
+
+# Economic data
+e0 <- readRDS(file = "econ_fin_data.Rda")
+e <- as.data.table(e0[, c('date','CFNAIDIFF','INDPRO','close')])
+e <- e[complete.cases(e), ]
+
+# To wide for use in formula
+mw <- dcast(m, mon_date ~ symbol, value.var=c("vol_ari_20d","rtn_log_1m","fwd_rtn_1m","rtn_log_3m","rtn_log_12m"))
+
+# Join
+setkey(e, date)
+setkey(mw, mon_date)
+a <- e[mw, nomatch=0]
+colnames(a) <- sub("\\^","",colnames(a))
+
+# Model WMT
+dat <- a[date %between% c(as.Date("1996-01-01"), as.Date("2017-12-01")), .(date, fwd_rtn_1m_WMT, rtn_log_3m_WMT, rtn_log_12m_WMT)]
+dat_loc <- a[date %between% c(as.Date("1996-01-01"), as.Date("2017-12-01")), .(vol_ari_20d_GSPC, CFNAIDIFF)]
+
+fit_wmt <- SVC_mle(
+  fwd_rtn_1m_WMT ~ rtn_log_3m_WMT + rtn_log_12m_WMT,
+  locs = as.matrix(dat_loc),
+  data = dat,
+  control = SVC_mle_control(profileLik = TRUE, cov.name = "exp")
+)
+fitted(fit_wmt)
+
+# Grid for predictions visualisation
+# https://plotly.com/r/3d-surface-plots/
+# https://peopleanalytics-regression-book.org/linear-reg-ols.html
+interval <- 25
+new_loc <- expand.grid(
+  vol_ari_20d_GSPC = seq(min(dat_loc[, 1]), max(dat_loc[, 1]), length.out = interval),
+  CFNAIDIFF = seq(min(dat_loc[, 2]), max(dat_loc[, 2]), length.out = interval)
+  )
+
+pred_WMT <- predict(fit_wmt, newlocs = as.matrix(new_loc))
+pred_grid_WMT <- matrix(pred_WMT[, 3], interval, interval)
+
+persp(
+  x = seq(min(dat_loc[, 1]), max(dat_loc[, 1]), length.out = interval), 
+  xlab = 'mkt volatility',
+  y = seq(min(dat_loc[, 2]), max(dat_loc[, 2]), length.out = interval), 
+  ylab = 'cfnaidiff',
+  zlab = 'SVC_3',
+  z = pred_grid_WMT, 
+  theta = 225, phi = 20, col = "lightblue", ticktype = "detailed")
+
+mat <- matrix(c(1,1,2,1,1,1,1,0,1,1),ncol=2)
+mat <- cbind(mat,c(1,1,1,1,1))
+
+
+
+
+y_wmt <- m[symbol == "WMT" & mon_date %between% c(as.Date("2000-01-01"), as.Date("2000-12-01"))]$rtn_log_1m
+X_wmt <- as.matrix(m[symbol == "WMT" & mon_date %between% c(as.Date("2000-01-01"), as.Date("2020-12-01")), .(rtn_log_3m, rtn_log_12m)])
+X_wmt <- cbind(rep(1, nrow(X_wmt)), X_wmt)
+locs_wmt <- as.matrix(m[symbol == "^GSPC" & mon_date %between% c(as.Date("2000-01-01"), as.Date("2020-12-01")), vol_ari_20d])
+
+fit_wmt <- SVC_mle(
+  y = y_wmt,
+  X = X_wmt,
+  locs = locs_wmt,
+  control = SVC_mle_control(profileLik = TRUE, cov.name = "exp")
+)
+summary(fit_wmt)
+plot(fit_wmt)
+
+#aqr <- read.csv("aqr_qmj10.csv")  # https://www.aqr.com/Insights/Datasets/Quality-Minus-Junk-10-QualitySorted-Portfolios-Monthly
+#colnames(aqr)[1] <- "date_stamp"
+#aqr$date_stamp <- as.Date(aqr$date_stamp, "%m/%d/%Y")
+
+
+
+require(sp)
+## get data set
+data("meuse", package = "sp")
+# construct data matrix and response, scale locations
+y <- log(meuse$cadmium)
+X <- model.matrix(~1+dist+lime+elev, data = meuse)
+locs <- as.matrix(meuse[, 1:2])/1000
+## starting MLE
+# the next call takes a couple of seconds
+fit <- SVC_mle(
+  y = y, X = X, locs = locs,
+  # has 4 fixed effects, but only 3 random effects (SVC)
+  # elev is missing in SVC
+  #W = X[, 1:3],
+  control = SVC_mle_control(
+    # inital values for 3 SVC
+    # 7 = (3 * 2 covariance parameters + nugget)
+    #init = c(rep(c(0.4, 0.2), 3), 0.2),
+    profileLik = TRUE
+  )
+)
+## summary and residual output
+summary(fit)
+plot(fit)
+head(fitted(fit))
+
+
+## predict
+# new locations
+newlocs <- expand.grid(
+  x = seq(min(locs[, 1]), max(locs[, 1]), length.out = 30),
+  y = seq(min(locs[, 2]), max(locs[, 2]), length.out = 30))
+# predict SVC for new locations
+SVC <- predict(fit, newlocs = as.matrix(newlocs))
+# visualization
+sp.SVC <- SVC
+coordinates(sp.SVC) <- ~loc_1+loc_2
+spplot(sp.SVC, colorkey = TRUE)

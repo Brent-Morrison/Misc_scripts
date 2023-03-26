@@ -1,0 +1,217 @@
+
+---
+params:
+  folder:
+    value: x
+title: "Backtest - experiment"
+author: "Brent Morrison"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    theme: spacelab 
+    highlight: pygments
+    toc: TRUE
+    toc_depth: 3
+    number_sections: FALSE
+    code_folding: hide
+    toc_float:
+      smooth_scroll: FALSE
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error = FALSE)
+folder <- params$folder
+
+# Libraries
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(ggplot2)
+library(cowplot)
+library(slider)
+library(readr)
+library(jsonlite)
+library(kableExtra)
+
+# Set default theme
+def_theme1 <- theme_minimal() +
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.9,0.9),
+    legend.background = element_blank(),
+    legend.key = element_blank(),
+    plot.caption = element_text(size = 8, color = "grey55", face = 'italic'), 
+    axis.title.y = element_text(size = 8, color = "darkslategrey"),
+    axis.title.x = element_text(size = 8, color = "darkslategrey"),
+    axis.text.y = element_text(size = 7, color = "darkslategrey"),
+    axis.text.x = element_text(size = 7, color = "darkslategrey")
+    )
+
+# External arguments / parameters
+json_args <- jsonlite::read_json(paste0(getwd(),"/01-scripts_02-args.json"))
+```
+
+## Backtest parameters  
+
+Model set-up and predictor variables.
+```{r backtest_parameters1}
+# Arguments
+args <- stack(json_args)
+args <- args[, c(2,1)]
+colnames(args) <- c("Attribute","Value")
+kbl(args) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+```{r backtest_parameters2}
+# Get predictor variables from model embedded in workflow
+model <- readRDS(paste0(getwd(),"/03-model_01-oos-pred-model"))
+predictor_vars <- model[["fit"]][["fit"]][["fit"]][["feature_names"]]
+
+kbl(data.frame(predictor_vars)) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+```{r chunk1}
+#df <- read_csv(paste0(getwd(),"/02-data_05-shap-values.csv"))
+#rmarkdown::paged_table(df)
+vldtn_preds_raw <- read_csv(paste0(getwd(),"/02-data_04-vldtn-preds.csv"))
+
+p1 <- ggplot(
+  vldtn_preds_raw, 
+  aes(y = fwd_rtn, x = .pred)
+  ) + 
+  geom_point(alpha = 0.1) +
+  geom_abline(intercept = 0, slope = 1) +
+  labs(
+    title = 'Predicted returns',
+    subtitle = 'Actual vs fitted',
+    y = 'Actual',
+    x = 'Fitted'
+  ) +
+  theme(
+    plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey40", hjust = 0),
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks = element_blank()
+  ) +
+  def_theme1
+
+p2 <- vldtn_preds_raw %>% 
+  mutate(residual = .pred - fwd_rtn) %>% 
+  ggplot(aes(y = residual, x = .pred)) + 
+    geom_point(alpha = 0.1) +
+    geom_abline(intercept = 0, slope = 1) +
+    labs(
+      title = 'Predicted returns',
+      subtitle = 'Residual vs fitted',
+      y = 'Residual',
+      x = 'Fitted'
+    ) +
+    theme(
+      plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey40", hjust = 0),
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks = element_blank()
+    ) +
+    def_theme1
+
+plot_grid(p1, p2, align = "h")
+```
+
+
+## Situation
+
+Text here ....  
+
+## Out of sample predictions
+
+Text here ....
+
+```{r chunk2}
+#params$f
+df <- read_csv(paste0(getwd(),"/02-data_07-oos-preds.csv"))
+df <- df[,c('date_stamp','symbol','industry','.pred','rtn_ari_1m','rtn_ari_12m')]
+df <- data.frame(lapply(df, function(x) if(is.numeric(x)) round(x, 3) else x))
+rmarkdown::paged_table(df)
+```
+
+## Question
+
+Text here ....
+
+## Answer
+
+```{r chunk3}
+ggplot(df, aes(x=rtn_ari_3m, y=.pred)) + geom_point() + labs(title=folder)
+```
+
+## Performance metrics
+Add percentage of correct sign 02-data_03-sp500.csv
+
+
+```{r chunk4}
+sp500_raw <- read_csv(paste0(getwd(),"/02-data_03-sp500.csv")) %>% 
+  arrange(date_stamp)
+
+date_filter <- min(vldtn_preds_raw$date_stamp)
+
+preds <- vldtn_preds_raw %>% 
+  group_by(date_stamp) %>% 
+  mutate(fwd_rtn_dcl = ntile(.pred, 10)) %>% 
+  filter(fwd_rtn_dcl == 10) %>% 
+  #group_by(date_stamp, fwd_rtn_dcl) %>% 
+  summarise(
+    mean_fwd_rtn = mean(fwd_rtn),
+    n = n()
+    ) %>% 
+  ungroup() %>% 
+  mutate(date_stamp = add_with_rollback(date_stamp, months(1)))
+
+# Add row to make cumsum work
+preds <- bind_rows(
+  data.frame(setNames(list(date_filter,0,0), names(preds))), 
+  preds
+  ) %>% 
+  arrange(date_stamp) %>% 
+  mutate(
+    fcast_cum_rtn = cumprod(1 + mean_fwd_rtn)#,
+    #popn_cum_rtn = cumprod(1 + mean_rtn)
+    )
+
+sp500 <- filter(sp500_raw, date_stamp >= date_filter) %>% 
+  group_by(date_stamp = floor_date(date_stamp, "month")) %>% 
+  mutate(date_stamp = ceiling_date(date_stamp, unit = "month") - 1) %>% 
+  summarise(adjusted_close = last(adjusted_close))
+
+sp500 <- sp500 %>% 
+  mutate(
+    rtn_ari_1m = replace_na((adjusted_close-lag(adjusted_close))/lag(adjusted_close), 0),
+    sp500_cum_rtn = cumprod(1 + rtn_ari_1m)
+    )
+
+#ggplot(sp500, aes(x = date_stamp, y = cum_rtn)) + 
+#  geom_line() #+ labs(title=folder)
+
+ggplot() +
+  geom_line(data = sp500, aes(x = date_stamp, y = sp500_cum_rtn, color = 'S&P 500')) +
+  geom_line(data = preds, aes(x = date_stamp, y = fcast_cum_rtn, color = 'Model forecast')) +
+  #geom_line(data = preds, aes(x = date_stamp, y = popn_cum_rtn, color = 'Model population')) +
+  labs(
+    x = '',
+    y = '',
+    title = 'Strategy and market returns'
+    ) +
+  scale_x_date(date_breaks = '1 years',
+               date_labels = '%Y')  +
+  def_theme1 + theme(legend.position = c(0.9,0.7))
+  
+```
+
+
+
+```{r chunk5}
+files <- list.files()
+df <- data.frame(files)
+rmarkdown::paged_table(df)
+```
