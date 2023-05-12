@@ -239,94 +239,6 @@ querygrain(grain_fit_evdnc)$y1
 
 
 
-# --------------------------------------------------------------------------------------------------------------------------
-#
-# Random forest models 
-# https://cran.r-project.org/web/packages/C50/vignettes/C5.0.html
-#
-# --------------------------------------------------------------------------------------------------------------------------
-
-
-library('tidyverse')
-library('ranger')
-library('vip')
-library('DBI')
-library('RPostgres')
-
-
-
-# Connect to db
-con <- stock_master_connect()
-
-
-
-# 1. Read data 
-
-sql1 <- "select * from access_layer.return_attributes"
-qry1 <- dbSendQuery(conn = con, statement = sql1) 
-return_attributes <- dbFetch(qry1)
-return_attributes <- arrange(return_attributes, symbol, date_stamp)
-
-df <- return_attributes %>% 
-  filter(date_stamp > as.Date('2011-12-31'), date_stamp <= as.Date('2020-12-31')) %>% 
-  group_by(symbol) %>% 
-  mutate(fwd_rtn_1m = lead((adjusted_close-lag(adjusted_close))/lag(adjusted_close))) %>% 
-  group_by(date_stamp) %>% 
-  mutate(
-    across(where(is.numeric), scale),
-    fwd_rtn_1m_qntl = ntile(fwd_rtn_1m, 3),
-    fwd_rtn_1m_qntl = if_else(fwd_rtn_1m_qntl == 3, 1, 0), # 1 represents top tercile returns
-    fwd_rtn_1m_qntl = as.factor(fwd_rtn_1m_qntl)
-    ) %>% 
-  ungroup() %>% 
-  select(amihud_1m:rtn_ari_12m, fwd_rtn_1m_qntl) %>% 
-  drop_na()
-
-
-
-# 2. Specify training and testing split 
-
-set.seed(123)
-in_train <- sample(1:nrow(df), size = 60000)
-train_data <- df[ in_train,]
-test_data  <- df[-in_train,]
-
-
-
-# 3. Train model 
-
-rf_model <- ranger(
-  fwd_rtn_1m_qntl ~ ., 
-  mtry = 10,
-  max.depth = 5,
-  importance = 'permutation',
-  data = df
-  )
-
-rf_model$confusion.matrix
-
-#rf_model$variable.importance
-
-vi <- enframe(rf_model$variable.importance) %>% arrange(desc(value))
-
-str(rf_model)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -401,6 +313,10 @@ plot(ms, stype = "raster")
 #
 # --------------------------------------------------------------------------------------------------------------------------
 
+library(tidyverse)
+library(lubridate)
+library(slider)
+library(broom)
 
 # For Theil Sen regression line in plot.  See - https://stackoverflow.com/questions/48349858/how-can-i-use-theil-sen-method-with-geom-smooth
 sen <- function(..., weights = NULL) {
@@ -408,82 +324,60 @@ sen <- function(..., weights = NULL) {
 }
 
 
-# Visualise regression for specific date
-prices %>% 
-  filter(
-    date_stamp == as.Date('2018-12-31'),
-    rtn_ari_12m_dcl %in% c(8,9),
-    fwd_rtn_1m < 1 # remove outliers
-    #vol_ari_120d < 1
-  ) %>% 
-  ggplot(aes(x = vol_ari_120d, y = fwd_rtn_1m)) +
-  geom_point(alpha = 0.3) +
-  geom_smooth(method = sen, se = FALSE, size = 0.3, colour = 'grey') +
-  geom_smooth(method = lm, se = FALSE, size = 0.3, colour = 'blue', linetype = 'twodash') +
-  #stat_smooth(method = 'gam', formula = y ~ s(x), se = TRUE, size = 0.6, colour = 'red') +
-  labs(
-    title = 'Forward returns and trailing volatility',
-    y = '1 month forward returns',
-    x = 'Trailing 6 month volatility of daily returns'
-  ) +
-  custom_theme1
-
 
 # Calculate regression slope for each month and each predictor (coefficients for OLS and Thiel Sen regression)
 # Data prep
-regr_data <- prices %>% 
-  filter(rtn_ari_12m_dcl  %in% c(8,9)) %>% 
-  select(symbol:date_stamp, amihud_1m:rtn_ari_12m, suv, perc_pos_rtn_12m) %>% 
-  select(-rtn_ari_12m) %>% 
-  pivot_longer(cols = !symbol:date_stamp, names_to = 'indicator') %>% 
-  left_join(select(prices, symbol, date_stamp, fwd_rtn_1m), by = c("symbol", "date_stamp")) %>% 
-  drop_na() %>% 
-  group_by(date_stamp, indicator) %>% 
-  mutate(
-    value_scaled = scale(value),
-    fwd_rtn_1m_scaled = scale(fwd_rtn_1m)
-  ) %>% 
-  ungroup()
+df_train <- read_csv("C:/Users/brent/Documents/R/Misc_scripts/experiment_03/02-data_01-training.csv")
+
   
 # Fit regression models and retrieve co-efficients
-coefs <- regr_data %>%
-  group_by(date_stamp, indicator) %>% 
-  nest() %>% 
+
+# Sliding window size for average betas
+n <- 12
+
+dat <- df_train %>% 
+  group_by(date_stamp) %>% 
   mutate(
-    fit_ols_scaled = map(.x = data, .f = ~lm(fwd_rtn_1m_scaled ~ value_scaled, data = .x)),
-    fit_ts_scaled = map(.x = data, .f = ~mblm(fwd_rtn_1m_scaled ~ value_scaled, data = .x, repeated = TRUE)),
-    fit_ts = map(.x = data, .f = ~mblm(fwd_rtn_1m ~ value, data = .x, repeated = TRUE)),
-    slp_ols_scaled = map_dbl(.x = fit_ols_scaled, .f = function(x) coef(summary(x))['value_scaled', 'Estimate']),
-    slp_ts_scaled = map_dbl(.x = fit_ts_scaled, .f = function(x) coef(summary(x))['value_scaled', 'Estimate']),
-    slp_ts = map_dbl(.x = fit_ts, .f = function(x) coef(summary(x))['value', 'Estimate'])
+    fwd_rtn     = as.vector(scale(fwd_rtn)),
+    rtn_ari_3m  = as.vector(scale(rtn_ari_3m)),
+    rtn_ari_12m = as.vector(scale(rtn_ari_12m))
   ) %>% 
-  select(-data, -fit_ols_scaled) %>% #, -fit_ts_scaled, -fit_ts) %>%
-  ungroup()
+  ungroup() %>% 
+  select(date_stamp, symbol, fwd_rtn, rtn_ari_3m, rtn_ari_12m)
+
+mdl_fit <- dat %>% 
+  nest_by(date_stamp) %>% 
+  mutate(model = list(lm(fwd_rtn ~ rtn_ari_3m + rtn_ari_12m, data = data))) %>% 
+  summarise(tidy(model)) %>% 
+  pivot_wider(names_from = term, values_from = c(estimate, std.error, statistic, p.value)) %>% 
+  ungroup() %>% 
+  rename_with(~ gsub(pattern = "[()]", replacement = "", x = .x)) %>% 
+  rename_with(~ tolower(.x)) %>% 
+  mutate(
+    across(starts_with("estimate"), 
+    ~ slide_dbl(.x = .x, .f = mean, .before = n-1, .complete = TRUE),
+    .names = "{col}^{as.character(n)}MA")
+    )
+
+# Extract averaged coefficients
+coefs <- t(as.matrix(mdl_fit[mdl_fit$date_stamp == max(mdl_fit$date_stamp), grepl("\\^", names(mdl_fit))]))
+
+# Out of sample data
+df_test <- read_csv("C:/Users/brent/Documents/R/Misc_scripts/experiment_03/02-data_02-scoring.csv")
+
+model_mat <- as.matrix(cbind(intercept = rep(1,nrow(df_test)), df_test[, c('rtn_ari_3m', 'rtn_ari_12m')]))
+model_mat %*% coefs
 
 
-# Plot of Theil Sen co-efficients
-# The Theil Sen model has been applied to the original unscaled data.  Applying Theil Sen to scaled data 
-# results in spurious co-efficients since the median is zero????
-ggplot(data = coefs, aes(x = date_stamp, y = slp_ts_scaled))+
-  geom_hline(yintercept = 0, color = 'grey', size = 0.25) + 
-  geom_line() +
-  facet_wrap(vars(indicator), scales = 'free') +
-  labs(
-    title = 'Slope of monthly regression of forward returns on various indicators',
-    subtitle = 'Theil Sen regression'
-  ) +
-  scale_x_date(
-    date_breaks = '2 years',
-    date_labels = '%Y'
-  ) + 
-  custom_theme1
 
 
-# Plot of OLS co-efficients
-ggplot(data = coefs, aes(x = date_stamp, y = slp_ols_scaled))+
-  geom_hline(yintercept = 0, color = 'grey', size = 0.25) + 
-  geom_line() +
-  facet_wrap(vars(indicator)) +
+
+# Plot 
+ggplot(data = mdl_fit) +
+  geom_hline(yintercept = 0, color = 'grey', linewidth = 0.25) + 
+  geom_line(aes(x = date_stamp, y = estimate_rtn_ari_12m, color = 'blue'), linetype = 'twodash') +
+  geom_line(aes(x = date_stamp, y = estimate_rtn_ari_3m, color = 'grey'), linetype = 'dotdash') +
+  #facet_wrap(vars(indicator), scales = 'free') +
   labs(
     title = 'Slope of monthly regression of forward returns on various indicators',
     subtitle = 'OLS regression'
@@ -491,8 +385,45 @@ ggplot(data = coefs, aes(x = date_stamp, y = slp_ols_scaled))+
   scale_x_date(
     date_breaks = '2 years',
     date_labels = '%Y'
-    ) + 
-  custom_theme1
+  ) 
+
+
+
+df <- df_train %>% 
+  filter(year(date_stamp) == 2022) %>% 
+  select(date_stamp, symbol, rtn_ari_1m) %>% 
+  pivot_wider(names_from = symbol, values_from = rtn_ari_1m) 
+
+mat = data.matrix(select(df, -date_stamp))
+na_ind <- which(is.na(mat), arr.ind = TRUE)
+mat[na_ind] <- rowMeans(mat, na.rm = TRUE)[na_ind[,1]]
+C <- cor(mat, use = 'pairwise.complete.obs')
+
+stocks <- c('AA','AAPL','AAWW','ACHC','ET')
+# If the input to 'combn' is sorted then the upper triangle and diagonal of the resultant matrix represents each combination
+combo <- t(combn(x = sort(stocks), m = 2))
+S <- C[rownames(C)%in%combo[,1], colnames(C)%in%combo[,2]]
+mean(S[upper.tri(S, diag = TRUE)])
+
+
+ij <- which(S == 1, arr.ind = TRUE)
+combo[2,]
+C[combo[,1][1],combo[1,][2]]
+n <- as.list(1:nrow(C))
+names(n) <- rownames(C)
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -813,6 +744,255 @@ data <- rbindlist(df_to_list)
 saveRDS(data, file = 'bendigo_census.rda')
 
 dat <- readRDS('bendigo_census.rda')
+
+
+
+
+
+
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+#
+# Simulate data for varying coefficients models
+# https://goldinlocks.github.io/ARCH_GARCH-Volatility-Forecasting/
+# https://www.apress.com/gp/blog/all-blog-posts/simulating-autoregressive-and-moving-average-time-series-in-r/16711624
+#
+# --------------------------------------------------------------------------------------------------------------------------
+
+
+# Simulate stock prices from a GARCH process
+ga <- function(n = 750, mean = -0.001, a = 0.005, b = 0.001, plot = F) {
+  
+  # a  variance re new information that was not available when the previous forecast was made 
+  # b  variance re the forecast that was made in the previous period
+  
+  LRsig <- mean^2
+  Y <- 1 - a - b
+  o <- Y * LRsig              # constant variance that corresponds to the long run average (mean daily return squared)
+  
+  e <- rnorm(n+2, mean=mean)  # returns / noise
+  R <- numeric(n)             # returns
+  V <- numeric(n)             # vol
+
+  
+  for (i in 3:n) {
+    V[i] = o + a * R[i-1]^2 + b * V[i-1]
+    R[i] = sqrt(V[i]) * e[i]  
+  }
+
+  if (plot) plot(cumprod(1 + R), type="l")
+  return(R)
+}
+
+
+# Combine return regimes to simulate market data
+R <- c(ga(mean = 0.02), ga(mean = -0.02), ga(mean = 0.01))
+Rcum <- c(1, cumprod(1 + R))
+plot(Rcum, type="l")
+
+
+# Retrieve real market data for dates
+library(DBI)
+library(RPostgres)
+
+# Database connection
+config <- jsonlite::read_json('C:/Users/brent/Documents/VS_Code/postgres/postgres/config.json')
+
+con <- DBI::dbConnect(
+  RPostgres::Postgres(),
+  host      = 'localhost',
+  port      = '5432',
+  dbname    = 'stock_master',
+  user      = 'postgres',
+  password  = config$pg_password
+)
+
+# Retrieve S&P500 data
+sp5_send <- dbSendQuery(conn = con, statement = "select * from access_layer.daily_sp500_ts_vw") 
+df_sp500 <- dbFetch(sp5_send)
+dbClearResult(sp5_send)
+dbDisconnect(conn = con)
+
+
+# Rolling 12 month returns
+library(zoo)
+log_rtn <- diff(log(Rcum))
+width <- 250 # width for rolling returns
+rtn_log_12m <- rollapply(log_rtn, width = width, FUN = sum, align = "right", fill = NA)
+
+
+mkt <- data.frame(
+  date_stamp  = df_sp500$date_stamp[(nrow(df_sp500)-length(R) + 1):nrow(df_sp500)],
+  mkt_price   = Rcum[2:length(Rcum)],
+  rtn_log_12m = rtn_log_12m
+)
+
+
+# Return on equity characteristic for individual stocks
+ROE <- c(0.125, 0.15, 0.175, 0.2)
+ROE1 <- rep(ROE[1], length(R))
+ROE2 <- rep(ROE[2], length(R))
+ROE3 <- rep(ROE[3], length(R))
+ROE4 <- rep(ROE[4], length(R))
+ROE5 <- rep(ROE, each = ceiling(length(R)/4))
+ROE5 <- ROE5[1:length(R)]
+ROE6 <- rev(ROE5)
+ROE6 <- ROE6[1:length(R)]
+
+ROEs <- list(ROE1, ROE2, ROE3, ROE4, ROE5, ROE6)
+stock_names <- c('ROE1', 'ROE2', 'ROE3', 'ROE4', 'ROE5', 'ROE6')
+n_stocks <- length(ROEs)
+
+lead <- 20 # for forward returns
+df <- list()
+counter <- 0
+for (r in ROEs) {
+  
+  counter    <- counter + 1
+  date_stamp <- mkt$date_stamp
+  roe        <- r
+  stock      <- rep(stock_names[[counter]], length(roe))
+  beta_roe1  <- ifelse(rtn_log_12m < 0 & roe == 0.125, 0.002,
+                ifelse(rtn_log_12m > 0 & roe == 0.125, 0.003,
+                ifelse(rtn_log_12m < 0 & roe == 0.150, 0.004,
+                ifelse(rtn_log_12m > 0 & roe == 0.150, 0.005,
+                ifelse(rtn_log_12m < 0 & roe >= 0.175, 0.006,
+                ifelse(rtn_log_12m > 0 & roe >= 0.175, 0.007, 0.001))))))
+  beta_roe2  <- rtn_log_12m * roe
+  rtn_log_1d <- beta_roe1 * roe + rnorm(length(roe), sd = 1e-06) 
+  rtn_lead   <- as.vector(lag(zoo(rtn_log_1d), k = -lead, na.pad = T))
+  rtn_lead   <- replace(rtn_lead, is.na(rtn_lead), 0)
+  close      <- cumprod(1 + rtn_lead)
+  
+  df[[counter]] <- data.frame(
+    date_stamp     = date_stamp,
+    symbol         = stock,
+    roe            = roe,
+    beta_roe       = beta_roe2,
+    rtn_log_1d     = rtn_log_1d,
+    rtn_lead       = rtn_lead,
+    adjusted_close = close
+  )[(width + lead - 1):length(date_stamp), ]
+}
+
+
+# To single data frame
+library(dplyr)
+library(lubridate)
+stocks1 <- bind_rows(df)
+market1 <- mkt[(width + lead - 1):nrow(mkt), ]
+
+
+# Monthly
+stocks <- stocks1 %>% 
+  group_by(symbol, date_stamp = floor_date(date_stamp, "month")) %>% 
+  mutate(date_stamp = ceiling_date(date_stamp, unit = "month") - 1) %>% 
+  summarise(
+    symbol         = last(symbol),
+    roe            = last(roe),
+    beta_roe       = first(beta_roe),
+    adjusted_close = last(adjusted_close)
+  ) %>% 
+  ungroup() %>% 
+  group_by(symbol) %>% 
+  mutate(fwd_rtn = lead((adjusted_close-lag(adjusted_close)) / lag(adjusted_close))) %>% 
+  ungroup() %>% 
+  select(date_stamp, symbol, roe, beta_roe, adjusted_close, fwd_rtn)
+
+market <- market1 %>% 
+  group_by(date_stamp = floor_date(date_stamp, "month")) %>% 
+  mutate(date_stamp = ceiling_date(date_stamp, unit = "month") - 1) %>% 
+  summarise(
+    adjusted_close = last(mkt_price),
+    rtn_log_12m    = last(rtn_log_12m)
+  ) %>% 
+  ungroup() %>% 
+  select(date_stamp, adjusted_close, rtn_log_12m)
+
+
+# Plot to show derived relationships
+# http://www.sthda.com/english/wiki/scatter-plots-r-base-graphs
+p1 <- cbind(stocks, rbind(market, market, market, market, market, market))
+names(p1)[8] <- 'adjusted_close_mkt'
+#p1 <- transform(p1, fwd_rtn = ave(adjusted_close, symbol, FUN = function(x) lead((x - lag(x)) / lag(x))))
+p2 <- p1[p1$rtn_log_12m < 0, ]
+x <- p2$roe
+y <- p2$fwd_rtn
+
+
+# Plot
+plot(x, y, main = "Main title", xlab = "ROE", ylab = "Return", pch = 1, frame = FALSE) # point shape (pch = 19) and remove frame
+plot(x = p1$roe, y = p1$fwd_rtn, main = "Main title", xlab = "ROE", ylab = "Return", pch = 1, frame = FALSE)
+
+# Write to csv
+write.csv(stocks, paste0(getwd(),"/stocks.csv"))
+write.csv(market, paste0(getwd(),"/market.csv"))
+
+
+
+
+
+
+
+
+# auto-regressive process
+n <- 250
+E <- rnorm(n+2, mean = 0.000 , sd = 0.01)
+Y <- numeric(n)
+a1 <- 0.01
+a2 <- 0.01
+Y[1] = E[3] + a1*E[2] + a2*E[1]
+Y[2] = E[4] + a1*Y[1] + a2*E[2]
+for (i in 3:n) Y[i] = E[i+2] + a1*Y[i-1] + a2*Y[i-2]
+plot(Y, type="l")
+Rtn <- Y + sqrt(V)   # include asymmetric responses of volatility
+plot(cumprod(1 + Y), type="l")
+
+# autoregressive process
+ar <- function(n=250, mean=0.00, sd=0.01, a1=0.01, a2=0.01, plot=F, vl) {
+  E <- vl #rnorm(n+2, mean = mean , sd = sd)
+  R <- numeric(n)
+  R[1] = E[3] + a1*E[2] + a2*E[1]
+  R[2] = E[4] + a1*R[1] + a2*E[2]
+  for (i in 3:n) R[i] = E[i+2] + a1*R[i-1] + a2*R[i-2]
+  P <- cumprod(1 + R) #+ sqrt(V)   # include asymmetric responses of volatility
+  if (plot) plot(P, type="l")
+  return(P)
+}
+P1 <- ar(plot=T,vl=R) #,vl=R
+P2 <- ar(sd=0.02, a1=0.02, a2=0.01)
+P3 <- ar(sd=0.03, a1=0.01, a2=0.02)
+plot(c(P1, P2, P3),type="l")
+
+
+# IF STOCK CHARACTERISTIC C1
+rbinom(10, 1, 0.5)
+
+
+# Scratch
+library(MASS)
+n = 1000
+mu1 <- c(X = 0.25, Y = 0, Z = -0.3)
+rhoXY <- 0.5
+rhoXZ <- 0.2
+rhoYZ <- 0.8
+R1 <- matrix(c(
+  1    , rhoXY, rhoXZ, 
+  rhoXY, 1    , rhoYZ, 
+  rhoXZ, rhoYZ, 1     ), 
+  nrow = 3, ncol = 3, byrow = TRUE)
+d <- mvrnorm(n, mu = mu1, Sigma = R1)
+d[1:5,]
+cor(d[, 1],d[, 2])
+cor(d[, 1],d[, 3])
+cor(d[, 2],d[, 3])
+
+reg1 <- rnorm( 60,  0.010 , 0.05)
+reg2 <- rnorm( 60, -0.025 , 0.10)
+reg3 <- rnorm( 60,  0.015 , 0.15)
+reg <- c(reg1, reg2, reg3)
+plot(cumprod(1 + reg), type="l")
 
 
 

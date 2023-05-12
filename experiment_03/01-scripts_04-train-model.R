@@ -6,7 +6,7 @@ library(tidymodels)
 library(slider)
 library(readr)
 #library(xgboost)
-library(earth)
+#library(earth)
 library(fastshap)
 library(jsonlite)
 
@@ -63,7 +63,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   
   # Index ref for first date
   analysis <- as.integer(rownames(df[df$date_stamp <  test_start_date, ]))
-  indices <-list(
+  indices <- list(
     analysis   = analysis, 
     assessment = (max(analysis)+1):nrow(df)
   )
@@ -219,11 +219,12 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   final_workflow <- tune::finalize_workflow(workflow, best_param)
   
   
-  # 10. Final fit ----------------------------------------------------------------------------------------------------------
-  # Fit the final best model to the training set and evaluate the test set
+  # 10. Final fit (fit best model to the training set) ---------------------------------------------------------------------
   
   set.seed(456)
   final_fit <- tune::last_fit(final_workflow, split) 
+  
+  # 10.1 Evaluate the test set
   preds <- tune::collect_predictions(final_fit)
   
   # Join labels to predictions
@@ -310,11 +311,157 @@ final_model <- final_workflow %>%
 saveRDS(final_model, paste0(getwd(),"/03-model_01-oos-pred-model"))
 
 
-# Use model
-#loaded_model <- readRDS("C:/Users/brent/Documents/R/R_import/final_model")
 
 
 
 
 
-# SCRATCH =========================================================================================
+
+
+
+
+# ==========================================================================================================================
+# SCRATCH 
+# ==========================================================================================================================
+
+# Empty list for loop results
+coefs_list <- list()
+preds_list <- list()
+
+# Formula
+f <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
+
+# Function to preprocess data
+preprocess <- function(df) {
+  df <- df %>% 
+    group_by(date_stamp) %>% 
+    mutate(
+      fwd_rtn     = as.vector(scale(fwd_rtn)),
+      rtn_ari_3m  = as.vector(scale(rtn_ari_3m)),
+      rtn_ari_12m = as.vector(scale(rtn_ari_12m))
+    ) %>% 
+    ungroup() %>% 
+    select(date_stamp, symbol, fwd_rtn, rtn_ari_3m, rtn_ari_12m)
+  
+  return(df)
+}
+
+
+# Back test loop
+for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.out = loops)) {
+  
+  start <- months[i]
+  end <- months[i + sample_months - 1]
+  df <- df_train %>% filter(between(date_stamp, as.Date(!!start), as.Date(!!end))) # inclusive
+  
+  
+  # 2. Specify training and testing split ----------------------------------------------------------------------------------
+  
+  test_start_date <- as.Date(mondate::mondate(max(df$date_stamp)) - test_months + fwd_rtn_months)
+  print(paste0("Sliding window : ", start," to ", end, " (test : ", test_start_date, " to ", end,")"))
+  
+  # Sort so that index for test split is appropriate
+  df <- arrange(df, date_stamp, symbol)
+  
+  # Index ref for first date
+  analysis <- as.integer(rownames(df[df$date_stamp <  test_start_date, ]))
+  indices <- list(
+    analysis   = analysis, 
+    assessment = (max(analysis)+1):nrow(df)
+  )
+  
+  # Determine proportion of records to select
+  split <- make_splits(indices, df)
+  
+  # Training and test data
+  train <- training(split)
+  test <- testing(split)
+  
+
+  
+  # 4. Pre-processing ------------------------------------------------------------------------------------------------------
+  
+  train <- preprocess(train)
+  
+  # Cross sectional scaling so no parameters inherited from test pre-processing
+  test <- preprocess(test)
+  
+  
+  
+  # 10. Fit model to training data ------------------------------------------------------------------------------------------
+  
+  # Sliding window size for average betas
+  n <- length(unique(train$date_stamp))
+  
+  mdl_fit <- train %>% 
+    nest_by(date_stamp) %>% 
+    mutate(model = list(lm(fwd_rtn ~ rtn_ari_3m + rtn_ari_12m, data = data))) %>% 
+    summarise(tidy(model)) %>% 
+    pivot_wider(names_from = term, values_from = c(estimate, std.error, statistic, p.value)) %>% 
+    ungroup() %>% 
+    rename_with(~ gsub(pattern = "[()]", replacement = "", x = .x)) %>% 
+    rename_with(~ tolower(.x)) %>% 
+    mutate(
+      across(starts_with("estimate"), 
+             ~ slide_dbl(.x = .x, .f = mean, .before = 11, .complete = TRUE),
+             .names = "{col}^{as.character(n)}MA")
+    )
+  # TO DO: retain the monthly coefficients for future analysis
+  
+  # Extract averaged coefficients
+  coefs <- t(as.matrix(mdl_fit[mdl_fit$date_stamp == max(mdl_fit$date_stamp), grepl("\\^", names(mdl_fit))]))
+  coefs_df <- as.data.frame(t(coefs))
+  
+  
+  
+  # # 10.1 Evaluate the test set -------------------------------------------------------------------------------------------
+  
+  model_mat <- as.matrix(cbind(intercept = rep(1,nrow(test)), test[, c('rtn_ari_3m', 'rtn_ari_12m')]))
+  preds <- as.vector(model_mat %*% coefs)
+  
+  # Join labels to predictions
+  preds <- bind_cols(preds, select(test, symbol, date_stamp))
+  colnames(preds)[1] <- "preds"
+  
+  
+  
+  # 10. Collect predictions ------------------------------------------------------------------------------------------------
+
+  # Label start & end date
+  preds$start <- start
+  preds$end <- end
+  # Label start & end date
+  coefs_df$start <- start
+  coefs_df$end <- end
+  
+  # Add data frame to list
+  preds_list[[i]] <- preds
+  coefs_list[[i]] <- coefs_df
+  
+}
+
+# End loop =================================================================================================================
+
+# Data frames in list to single data frame
+preds_all <- dplyr::bind_rows(preds_list)
+coefs_all <- dplyr::bind_rows(coefs_list)
+
+
+# 13. Save final model object ----------------------------------------------------------------------------------------------
+
+# Fit to data comprising both the training and test set
+# data prep
+final_fit_data <- bind_rows(train, test)
+train_dates <- unique(train$date_stamp)
+excl_dates <- train_dates[1:(test_months / fwd_rtn_months)]
+final_fit_data <- final_fit_data %>% filter(!date_stamp %in% excl_dates)
+final_fit_data <- preprocess(final_fit_data)
+
+# train model
+final_model <- lm(fwd_rtn ~ rtn_ari_3m + rtn_ari_12m, data = final_fit_data)
+saveRDS(final_model, paste0(getwd(),"/03-model_01-oos-pred-model"))
+
+
+#xxx <- preprocess(df_train)
+#group_by(xxx, date_stamp) %>% summarise(x = mean(fwd_rtn))
+#sum(c("date_stamp","fwd_rtn","rtn_ari_3m","rtn_ari_12m") %in% colnames(test))

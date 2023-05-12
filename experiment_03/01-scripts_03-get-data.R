@@ -152,9 +152,7 @@ if(length(first_non_contig) == 0) first_non_contig <- 0
 
 # Dates to include / exclude
 date_to_include <- df_check$date_stamp[(first_non_contig+1):nrow(df_check)]
-#date_to_include <- date_to_include[[1]]
 date_to_exclude <- as.list(df_check[df_check$n < 100, "date_stamp"])[[1]]
-#date_to_exclude <- date_to_exclude[[1]]
 
 df_train <- df_train %>% filter(date_stamp %in% date_to_include)
 df_train <- df_train %>% filter(!date_stamp %in% date_to_exclude)

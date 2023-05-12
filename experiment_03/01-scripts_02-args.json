@@ -6,5 +6,6 @@
 	"test_months"  		:   6,
 	"model_type"		:	"mars",
 	"cross_val_v"		: 	3,
-	"error_metric"		:	"mae"
+	"error_metric"		:	"mae",
+	"predictors"		:	["rtn_ari_3m", "rtn_ari_12m"]
 }

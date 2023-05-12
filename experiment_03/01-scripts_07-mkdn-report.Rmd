@@ -34,6 +34,8 @@ library(slider)
 library(readr)
 library(jsonlite)
 library(kableExtra)
+library(PerformanceAnalytics)
+library(DescTools)
 
 # Set default theme
 def_theme1 <- theme_minimal() +
@@ -64,17 +66,33 @@ colnames(args) <- c("Attribute","Value")
 kbl(args) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
 ```
 
+
+## Predictor variables  
+
 ```{r backtest_parameters2}
 # Get predictor variables from model embedded in workflow
 model <- readRDS(paste0(getwd(),"/03-model_01-oos-pred-model"))
-predictor_vars <- model[["fit"]][["fit"]][["fit"]][["feature_names"]]
+#predictor_vars <- model[["fit"]][["fit"]][["fit"]][["feature_names"]] # xgboost
+predictor_vars <- names(model[["pre"]][["mold"]][["predictors"]])
 
 kbl(data.frame(predictor_vars)) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
 ```
 
+## Predictor descriptive statistics  
+
+```{r chunk0}
+training_data_raw <- read_csv(paste0(getwd(),"/02-data_01-training.csv"))
+max_date <- max(training_data_raw$date_stamp)
+cor_data <- sapply(training_data_raw[training_data_raw$date_stamp == max_date , c('fwd_rtn', predictor_vars)], Winsorize, probs = c(0.05, 0.95))
+chart.Correlation(cor_data, histogram=TRUE, pch=1)
+```
+
+
+
+## Predicted vs actual returns  
+
+
 ```{r chunk1}
-#df <- read_csv(paste0(getwd(),"/02-data_05-shap-values.csv"))
-#rmarkdown::paged_table(df)
 vldtn_preds_raw <- read_csv(paste0(getwd(),"/02-data_04-vldtn-preds.csv"))
 
 p1 <- ggplot(
@@ -120,9 +138,65 @@ plot_grid(p1, p2, align = "h")
 ```
 
 
-## Situation
+## Variable importance
 
-Text here ....  
+### Shapley values via `fastshap`
+
+```{r chunk1.2}
+shap_raw <- read_csv(paste0(getwd(),"/02-data_05-shap-values.csv"))
+
+#shap_imp <- data.frame(
+#  Variable = names(shap_raw[,!names(shap_raw) %in% c("start", "end")]),
+#  Importance = apply(
+#    shap_raw[,!names(shap_raw) %in% c("start", "end")],
+#    MARGIN = 2, FUN = function(x) sum(abs(x))
+#    )
+#)
+
+shap_imp <- shap_raw %>% 
+  select(-start) %>% 
+  group_by(end) %>%
+  summarise(across(everything(), function(x) sum(abs(x)))) %>% 
+  pivot_longer(!end, names_to = "Predictors", values_to = "Importance")
+             
+
+# Plot Shap-based variable importance
+ggplot(shap_imp, aes(reorder(Predictors, Importance), Importance)) +
+  geom_col() +
+  coord_flip() +
+  xlab("") +
+  ylab("mean(|Shapley value|)") +
+  facet_wrap(vars(end)) +
+  labs(
+    title = 'Sum of the absolute value of Shapley values',
+    subtitle = 'By sliding window validation set',
+    x = '',
+    y = ''
+  ) +
+  def_theme1
+```
+
+### Model specific via `vip`
+
+```{r chunk1.3}
+vip_raw <- read_csv(paste0(getwd(),"/02-data_07-var-imp.csv"))
+
+# Plot Shap-based variable importance
+ggplot(vip_raw, aes(reorder(Variable, Importance), Importance)) +
+  geom_col() +
+  coord_flip() +
+  xlab("") +
+  ylab("mean(|Shapley value|)") +
+  facet_wrap(vars(end)) +
+  labs(
+    title = 'Model specific variable importance',
+    subtitle = 'By sliding window model specification',
+    x = '',
+    y = ''
+  ) +
+  def_theme1
+```
+
 
 ## Out of sample predictions
 
@@ -131,7 +205,7 @@ Text here ....
 ```{r chunk2}
 #params$f
 df <- read_csv(paste0(getwd(),"/02-data_07-oos-preds.csv"))
-df <- df[,c('date_stamp','symbol','industry','.pred','rtn_ari_1m','rtn_ari_12m')]
+df <- df[,c('date_stamp','symbol','.pred','rtn_ari_1m','rtn_ari_12m')]
 df <- data.frame(lapply(df, function(x) if(is.numeric(x)) round(x, 3) else x))
 rmarkdown::paged_table(df)
 ```
@@ -142,9 +216,8 @@ Text here ....
 
 ## Answer
 
-```{r chunk3}
-ggplot(df, aes(x=rtn_ari_3m, y=.pred)) + geom_point() + labs(title=folder)
-```
+Text here ....
+
 
 ## Performance metrics
 Add percentage of correct sign 02-data_03-sp500.csv
