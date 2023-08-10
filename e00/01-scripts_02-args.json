@@ -1,0 +1,11 @@
+{
+	"lookback_yrs"		:	8,
+	"folder"			:	"experiment_03",
+	"fwd_rtn_months"	:	2,
+	"train_months"  	:	24,
+	"test_months"  		:   6,
+	"model_type"		:	"mars",
+	"cross_val_v"		: 	3,
+	"error_metric"		:	"mae",
+	"predictors"		:	["rtn_ari_3m", "rtn_ari_12m"]
+}

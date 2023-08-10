@@ -1152,3 +1152,357 @@ SVC <- predict(fit, newlocs = as.matrix(newlocs))
 sp.SVC <- SVC
 coordinates(sp.SVC) <- ~loc_1+loc_2
 spplot(sp.SVC, colorkey = TRUE)
+
+
+
+
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+# https://dachxiu.chicagobooth.edu/download/datashare.zip
+# 
+# Stock data from "Empirical Asset Pricing via Machine Learning"
+#
+# This Version: April 2019. @copyright Shihao Gu, Bryan Kelly and Dacheng Xiu
+# If you use the dataset, please cite the paper "Empirical Asset Pricing via Machine Learning" (2018) and "Autoencoder Asset Pricing Models." (2019)
+
+# Firm Characteristics Dataset Description:
+  
+# 1.    DATE: The end day of each month (YYYYMMDD) 
+# 2.    permno: CRSP Permanent Company Number
+# 3-96. 94 Lagged Firm Characteristics (Details are in the appendix of our paper)
+# 97.   sic2: The first two digits of the Standard Industrial Classification code on DATE
+
+# Most of these characteristics are released to the public with a delay. To avoid the forward-looking bias, we assume that monthly characteristics 
+# are delayed by at most 1 month, quarterly with at least 4 months lag, and annual with at least 6 months lag. Therefore, in order to predict returns 
+# at month t + 1, we use most recent monthly characteristics at the end of month t, most recent quarterly data by end t ??? 4, and most recent annual 
+# data by end t ??? 6. In this dataset, we've already adjusted the lags. (e.g. When DATE=19570329 in our dataset, you can use the monthly RET at 195703 
+# as the response variable.) 
+
+# Note: CRSP returns are not included. They are accessible from WRDS.
+# 
+# --------------------------------------------------------------------------------------------------------------------------
+
+library(data.table)
+library(lubridate)
+
+# Load data - "datashare.csv" is eapvml data
+d <- fread("C:/Users/brent/Documents/VS_Code/postgres/postgres/reference/datashare.csv")
+
+# Convert integer to date
+d[, date_stamp := strptime(DATE, format="%Y%m%d")]
+
+# End of month date for prior month (see below)
+d[, date_stamp := as.Date(floor_date(date_stamp, "month") - 1)]
+
+# Dates and stocks (permno)
+length(unique(d$date_stamp))
+max(d$DATE)
+length(unique(d$permno))
+
+# Plot number of stocks over time
+library(ggplot2)
+ggplot(data=d[, .(stocks_unq = length(unique(permno)), stocks_n = .N), by = date_stamp], 
+       aes(x=date_stamp, y=stocks_n, group=1)) +
+  geom_line()+
+  geom_point()
+
+# Find largest stock at specific date (we expect this to be AAPL)
+setorder(d, DATE, -mvel1)
+d[DATE == 20201231 , head(.SD, 5)][ , .(permno, DATE, date_stamp, mvel1)]
+
+# Confirm we have indeed identified AAPL by checking the returns
+# Add attributes
+setorder(d, permno, date_stamp)
+d[, rtn_ari_1m := (mvel1 - shift(mvel1, 1)) / shift(mvel1, 1), by = permno]
+d[, rtn_log_1m := log(mvel1 / shift(mvel1, 1)), by = permno]
+
+#  AAPL only
+aapl <- d[permno == 14593]
+
+# Get independently collected return data from stock_masterdb
+library(DBI)
+library(RPostgres)
+library(jsonlite)
+
+config <- jsonlite::read_json('C:/Users/brent/Documents/VS_Code/postgres/postgres/config.json')
+
+con <- DBI::dbConnect(
+  RPostgres::Postgres(),
+  host      = 'localhost',
+  port      = '5432',
+  dbname    = 'stock_master',
+  user      = 'postgres',
+  password  = config$pg_password
+)
+
+# Retrieve price data
+# TO DO - add SIC from "edgar.edgar_fndmntl_all_tb"
+qry_text <- "
+  select 
+  r.symbol
+  ,r.date_stamp
+  ,r.rtn_ari_1m 
+  ,f.report_date
+  ,f.publish_date
+  ,f.total_equity
+  from access_layer.return_attributes r 
+  left join access_layer.fundamental_attributes f
+  on r.date_stamp = f.date_stamp 
+  and r.symbol = f.ticker 
+  where r.date_stamp between '2017-01-31'::date and '2021-12-31'::date 
+  order by 1,2
+  "
+qry_send <- DBI::dbSendQuery(conn = con, statement = qry_text) 
+db <- DBI::dbFetch(qry_send)
+
+
+# Check correlations (we have a match)
+library(PerformanceAnalytics)
+aapl_db <- db[db$symbol == "AAPL", ]
+cor_data <- aapl[aapl_db, on = c("date_stamp"), nomatch = 0][ , .(mom1m, rtn_ari_1m, i.rtn_ari_1m)]
+chart.Correlation(cor_data, histogram=TRUE, pch=1)
+
+
+
+
+# ----------------------------------------------------
+# Calculate turnover of top n by market capitalisation
+# ----------------------------------------------------
+
+# Function for measuring portfolio turnover
+turnover <- function(df, top_n) {
+  
+  unq_dates   <- sort(unique(df$date_stamp))
+  start_dates <- shift(unq_dates)[-1]
+  end_dates   <- unq_dates[-1]
+  dat         <- Sys.Date()[0]
+  res         <- list()
+  
+  for (i in 1:length(end_dates)) {
+    s    <- df[date_stamp == start_dates[i] & mkt_cap_rank %in% 1:top_n, symbol]
+    e    <- df[date_stamp == end_dates[i] & mkt_cap_rank %in% 1:top_n, symbol]
+    resi <- length(setdiff(s, e)) / length(s)
+    dat  <- append(dat, end_dates[i])
+    res  <- append(res, resi)
+  }
+  
+  return(data.frame(date_stamp = dat, turnover = unlist(res)))
+}
+
+# Create data frame with december dates including rank by mkt cap
+turnoverd <- d[month(date_stamp) == 12 & date_stamp > as.Date('1980-12-31'), .(date_stamp, permno, mvel1)][, mkt_cap_rank := frankv(mvel1, order = -1), by = date_stamp]
+setnames(turnoverd, old = "permno", new = "symbol")
+
+# Call turnover function
+t <- turnover(turnoverd, top_n = 50)
+
+
+
+
+
+
+# --------------------------------------------
+# Match permno and ticker based on correlation
+# --------------------------------------------
+
+# https://www.ivo-welch.info/research/betas/
+# https://eml.berkeley.edu/~sdellavi/data/EarningsSearchesDec06.xls
+# https://www.crsp.org/files/images/release_notes/mdaz_201312.pdf
+# https://github.com/sharavsambuu/FinRL_Imitation_Learning_by_AI4Finance/blob/master/data/merged.csv
+# https://www.stat.rice.edu/~dobelman/courses/482/examples/allstocks.2004.xlsx
+# https://biopen.bi.no/bi-xmlui/bitstream/handle/11250/2625322/LTWC.xlsx?sequence=2&isAllowed=y
+# http://www1.udel.edu/Finance/varma/CRSP%20DIRECTORY%20.xls
+
+library(data.table)
+library(DBI)
+library(RPostgres)
+library(jsonlite)
+
+# Connect to db 
+config <- jsonlite::read_json('C:/Users/brent/Documents/VS_Code/postgres/postgres/config.json')
+
+con <- DBI::dbConnect(
+  RPostgres::Postgres(),
+  host      = 'localhost',
+  port      = '5432',
+  dbname    = 'stock_master',
+  user      = 'postgres',
+  password  = config$pg_password
+)
+
+# Get independently collected return data from stock_master db 
+# TO DO - add SIC from "edgar.edgar_fndmntl_all_tb"
+qry_text <- "
+  select 
+  r.symbol
+  ,r.date_stamp
+  ,r.rtn_ari_1m 
+  ,f.report_date
+  ,f.publish_date
+  ,f.total_equity
+  from access_layer.return_attributes r 
+  left join access_layer.fundamental_attributes f
+  on r.date_stamp = f.date_stamp 
+  and r.symbol = f.ticker 
+  where r.date_stamp between '2017-01-31'::date and '2021-12-31'::date 
+  order by 1,2
+  "
+qry_send <- DBI::dbSendQuery(conn = con, statement = qry_text) 
+db <- DBI::dbFetch(qry_send)
+setDT(db)
+
+
+# Retrieve academic paper data ""Empirical Asset Pricing via Machine Learning""
+qry_text <- "
+  select 
+  date_stamp
+  ,permno 
+  ,mvel1
+  from reference.eapvml
+  "
+qry_send <- DBI::dbSendQuery(conn = con, statement = qry_text) 
+d <- DBI::dbFetch(qry_send)
+setDT(d)
+
+
+# Add return attributes
+setorder(d, permno, date_stamp)
+d[, rtn_ari_1m := (mvel1 - shift(mvel1, 1)) / shift(mvel1, 1), by = permno]
+d[, rtn_log_1m := log(mvel1 / shift(mvel1, 1)), by = permno]
+
+
+# Create list of permno's from the online data
+permno_list <- as.list(unique(
+  d[date_stamp == as.Date('2021-11-30')]
+  [, mkt_cap_rank := frank(-mvel1)]
+  [mkt_cap_rank <= 2000]
+  [order(mkt_cap_rank)]
+  [, permno]
+  ))
+
+
+# Create list of tickers from the price data
+ticker_list <- as.list(unique(db$symbol))
+
+# Check existing file exists, if so remove existing matches
+if (file.exists("permno_ticker_202112.csv")) {
+  existing_results <- read.csv("permno_ticker_202112.csv")
+  permno_list <- Filter(function(x) !x %in% existing_results$permno, permno_list)
+  ticker_list <- Filter(function(x) !x %in% existing_results$ticker, ticker_list)
+}
+
+
+
+start_time <- Sys.time()
+r1 <- list()
+r2 <- list()
+r3 <- list()
+r4 <- list()
+# Outer loop - tickers
+#for (y in c(1:300)) { 
+for (y in 1:length(ticker_list)) {
+  j <- ticker_list[[y]]
+  dbi <- db[symbol == j, .(symbol, date_stamp, rtn_ari_1m)]
+  print(j)
+  
+  # Inner loop - permno
+  for (x in 1:length(permno_list)) {
+    i   <- permno_list[[x]]
+    di  <- d[permno == i, .(permno, date_stamp, rtn_ari_1m)]
+    cd  <- di[dbi, on = c("date_stamp"), nomatch = 0][ , .(rtn_ari_1m, i.rtn_ari_1m)]
+    
+    if (nrow(cd) == 0) {
+      r11 <- 0
+      r22 <- 0
+    } else {
+      r11 <- cor(cd$rtn_ari_1m, cd$i.rtn_ari_1m, use= "pairwise.complete.obs")
+      r22 <- sum(complete.cases(cd))
+    }
+    
+    # Only keep matches
+    if (as.numeric(r11) > 0.95 & as.integer(r22) > 12) {
+      r1 <- append(r1, as.numeric(r11))
+      r2 <- append(r2, as.integer(r22))
+      r3 <- append(r3, i)
+      r4 <- append(r4, j) 
+      
+      # Remove from permno list since match found
+      permno_list[[x]] <- NULL
+      
+      # Exit loop
+      break
+    }
+  }
+  
+}
+res <- cbind.data.frame(unlist(r1),unlist(r2),unlist(r3),unlist(r4))
+names(res) <- c("correlation","months","permno","ticker")
+
+end_time <- Sys.time()
+run_time <- end_time - start_time
+
+# Bind results
+if (exists("existing_results")) {
+  existing_results <- rbind(existing_results, res)
+} else {
+  existing_results <- res
+}
+
+
+# Save to disk
+write.csv(existing_results[order(existing_results$ticker), ], file = "permno_ticker_202112.csv", row.names = FALSE)
+
+
+
+
+
+
+# ------------------------------------------------------------------------------
+# Match permno and ticker from Ivo Welch data (https://www.ivo-welch.info/home/)
+# ------------------------------------------------------------------------------
+
+library(data.table)
+permno_ticker_iw_raw <- fread("https://www.ivo-welch.info/research/betas/code/betas.csv.gz")
+permno_ticker_iw <- permno_ticker_iw_raw[, keyby = .(tic, permno), .(min_date = min(yyyymmdd), max_date = max(yyyymmdd))]
+# Convert integer to date
+permno_ticker_iw[, ":=" (
+  min_date = as.Date(strptime(min_date, format="%Y%m%d")), 
+  max_date = as.Date(strptime(max_date, format="%Y%m%d")),
+  capture_date = Sys.Date()
+  )]
+permno_ticker_iw[tic == "", tic := "no_data"]
+setnames(permno_ticker_iw, old = "tic", new = "ticker")
+
+# Connect to stock_master db
+library(DBI)
+library(RPostgres)
+library(jsonlite)
+
+config <- jsonlite::read_json('C:/Users/brent/Documents/VS_Code/postgres/postgres/config.json')
+
+con <- DBI::dbConnect(
+  RPostgres::Postgres(),
+  host      = "localhost",
+  port      = "5432",
+  dbname    = "stock_master",
+  user      = "postgres",
+  password  = config$pg_password
+)
+
+
+# Create table with sample of data
+db_write <- as.data.frame(permno_ticker_iw)
+dbWriteTable(con, Id(schema = "reference", table = "permno_ticker_iw"), db_write)
+
+
+
+
+
+#annual_cols <- c('permno','date_stamp','absacc','acc','age','agr','bm','bm_ia','cashdebt','cashpr','cfp','cfp_ia','chatoia','chcsho','chempia','chinv','chpmia','convind','currat','depr','divi','divo','dy','egr','ep','gma','grcapx','grltnoa','herf','hire','invest','lev','lgr','mve_ia','operprof','orgcap','pchcapx_ia','pchcurrat','pchdepr','pchgm_pchsale','pchquick','pchsale_pchinvt','pchsale_pchrect','pchsale_pchxsga','pchsaleinv','pctacc','ps','quick','rd','rd_mve','rd_sale','realestate','roic','salecash','saleinv','salerec','secured','securedind','sgr','sin','sp','tang','tb')
+#monthly_cols <- c('permno','date_stamp','baspread','beta','betasq','chmom','dolvol','idiovol','ill','indmom','maxret','mom12m','mom1m','mom36m','mom6m','mvel1','pricedelay','retvol','std_dolvol','std_turn','turn','zerotrade')
+#quarterly_cols <- c('permno','date_stamp','aeavol','cash','chtx','cinvest','ear','ms','nincr','roaq','roavol','roeq','rsup','stdacc','stdcf')
+#d1_clean <- d[ , which(sapply(d1, function(x) all(is.na(x)))) := NULL]
+#Monthly data only
+#monthly <- d[, ..monthly_cols]
+#setorder(monthly, permno, date_stamp)

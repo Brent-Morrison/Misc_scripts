@@ -1,0 +1,405 @@
+---
+title: "Backtest - experiment"
+author: "Brent Morrison"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    theme: spacelab 
+    highlight: pygments
+    toc: TRUE
+    toc_depth: 3
+    number_sections: FALSE
+    code_folding: hide
+    toc_float:
+      smooth_scroll: FALSE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error = FALSE)
+
+# Libraries
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(ggplot2)
+library(cowplot)
+library(slider)
+library(readr)
+library(jsonlite)
+library(kableExtra)
+library(PerformanceAnalytics)
+library(DescTools)
+
+# Set default theme
+def_theme1 <- theme_minimal() +
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.9,0.9),
+    legend.background = element_blank(),
+    legend.key = element_blank(),
+    plot.caption = element_text(size = 8, color = "grey55", face = 'italic'), 
+    axis.title.y = element_text(size = 8, color = "darkslategrey"),
+    axis.title.x = element_text(size = 8, color = "darkslategrey"),
+    axis.text.y = element_text(size = 7, color = "darkslategrey"),
+    axis.text.x = element_text(size = 7, color = "darkslategrey")
+    )
+
+# External arguments / parameters
+json_args <- jsonlite::read_json(paste0(getwd(),"/01-scripts_02-args.json"))
+preds <- json_args$predictors
+```
+
+<br>
+
+## Overview  
+Forecasting standardised cross sectional returns using a linear regression model.
+
+### Backtest parameters
+
+Model set-up and predictor variables.
+
+```{r backtest_parameters1}
+# Arguments
+args <- stack(json_args)
+args <- args[, c(2,1)]
+colnames(args) <- c("Attribute","Value")
+kbl(subset(args, Attribute != "predictors")) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+### Predictor variables
+
+```{r backtest_parameters2}
+# Get predictor variables from model embedded in workflow
+model <- readRDS(paste0(getwd(),"/03-model_01-oos-pred-model"))
+#predictor_vars <- model[["fit"]][["fit"]][["fit"]][["feature_names"]] # xgboost
+#predictor_vars <- names(model[["pre"]][["mold"]][["predictors"]]) # mars??
+predictor_vars <- all.vars(formula(model))[-1]  # lm
+
+kbl(data.frame(predictor_vars)) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+### Data
+
+```{r chunk0.0}
+training_data_raw <- read_csv(paste0(getwd(),"/02-data_01-training.csv"))
+
+training_data_raw %>% 
+  group_by(date_stamp) %>% 
+  summarise(n = n()) %>% 
+  ggplot(aes(x = date_stamp, y = n)) + 
+  geom_line() +
+  labs(
+      x = '',
+      y = '',
+      title = 'Training data',
+      subtitle = 'Count of stocks by date'
+      ) +
+  def_theme1
+```
+
+## Descriptive statistics
+
+```{r chunk0.1}
+# https://www.reddit.com/r/rstats/comments/gynzo7/performanceanalytics_selecting_data_columns/
+# https://stat.ethz.ch/pipermail/r-sig-finance/2008q1/001982.html
+max_date <- max(training_data_raw$date_stamp)
+cor_data <- sapply(training_data_raw[training_data_raw$date_stamp == max_date , c('fwd_rtn', predictor_vars)], Winsorize, probs = c(0.05, 0.95))
+chart.Correlation(cor_data, histogram=TRUE, pch=1)
+```
+
+## Predicted vs actual returns
+
+```{r chunk1}
+if (file.exists(paste0(getwd(),"/02-data_04-vldtn-preds.csv"))){
+
+  vldtn_preds_raw <- read_csv(paste0(getwd(),"/02-data_04-vldtn-preds.csv"))
+  
+  p1 <- ggplot(
+    vldtn_preds_raw, 
+    aes(y = fwd_rtn, x = .pred)
+    ) + 
+    geom_point(alpha = 0.1) +
+    geom_abline(intercept = 0, slope = 1) +
+    labs(
+      title = 'Predicted returns',
+      subtitle = 'Actual vs fitted',
+      y = 'Actual',
+      x = 'Fitted'
+    ) +
+    theme(
+      plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey40", hjust = 0),
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks = element_blank()
+    ) +
+    def_theme1
+  
+  p2 <- vldtn_preds_raw %>% 
+    mutate(residual = .pred - fwd_rtn) %>% 
+    ggplot(aes(y = residual, x = .pred)) + 
+      geom_point(alpha = 0.1) +
+      geom_abline(intercept = 0, slope = 1) +
+      labs(
+        title = 'Predicted returns',
+        subtitle = 'Residual vs fitted',
+        y = 'Residual',
+        x = 'Fitted'
+      ) +
+      theme(
+        plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey40", hjust = 0),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank()
+      ) +
+      def_theme1
+  
+  plot_grid(p1, p2, align = "h")
+  
+} else {
+  
+  print('NA')
+  
+}
+```
+
+## Variable importance
+
+### Shapley values via `fastshap`
+
+```{r chunk1.2}
+if (file.exists(paste0(getwd(),'02-data_05-shap-values.csv'))) {
+  
+  shap_raw <- read_csv(paste0(getwd(),"/02-data_05-shap-values.csv"))
+  
+  #shap_imp <- data.frame(
+  #  Variable = names(shap_raw[,!names(shap_raw) %in% c("start", "end")]),
+  #  Importance = apply(
+  #    shap_raw[,!names(shap_raw) %in% c("start", "end")],
+  #    MARGIN = 2, FUN = function(x) sum(abs(x))
+  #    )
+  #)
+  
+  shap_imp <- shap_raw %>% 
+    select(-start) %>% 
+    group_by(end) %>%
+    summarise(across(everything(), function(x) sum(abs(x)))) %>% 
+    pivot_longer(!end, names_to = "Predictors", values_to = "Importance")
+               
+  
+  # Plot Shap-based variable importance
+  ggplot(shap_imp, aes(reorder(Predictors, Importance), Importance)) +
+    geom_col() +
+    coord_flip() +
+    xlab("") +
+    ylab("mean(|Shapley value|)") +
+    facet_wrap(vars(end)) +
+    labs(
+      title = 'Sum of the absolute value of Shapley values',
+      subtitle = 'By sliding window validation set',
+      x = '',
+      y = ''
+    ) +
+    def_theme1
+  
+} else {
+  
+  print('NA')
+  
+}
+```
+
+### Model specific via `vip`
+
+```{r chunk1.3}
+if (file.exists(paste0(getwd(),"/02-data_07-var-imp.csv"))) {
+
+  vip_raw <- read_csv(paste0(getwd(),"/02-data_07-var-imp.csv"))
+  
+  # Plot Shap-based variable importance
+  ggplot(vip_raw, aes(reorder(Variable, Importance), Importance)) +
+    geom_col() +
+    coord_flip() +
+    xlab("") +
+    ylab("mean(|Shapley value|)") +
+    facet_wrap(vars(end)) +
+    labs(
+      title = 'Model specific variable importance',
+      subtitle = 'By sliding window model specification',
+      x = '',
+      y = ''
+    ) +
+    def_theme1
+  
+} else {
+  
+  print('NA')
+  
+}
+```
+
+### Model coefficients
+
+```{r chunk1.4}
+if (file.exists(paste0(getwd(),"/02-data_06-coefs.csv"))) {
+
+  coefs_raw <- read_csv(paste0(getwd(),"/02-data_06-coefs.csv"))
+  
+  # Plot Shap-based variable importance
+  coefs_raw %>% pivot_longer(!date_stamp, names_to = "predictor", values_to = "coefficient") %>% 
+  ggplot(aes(x = date_stamp, y = predictor, fill = coefficient)) +
+    geom_tile(color = "white", lwd = 0.75, linetype = 1) +
+    scale_fill_fermenter(direction = 1) + 
+    labs(
+      title = "Time series of regression coefficients"
+      #subtitle = "Size and shading represents count of cluster members",
+      #caption = "Source: SimFin bulk data download - October 2018 (https://simfin.com)"
+      ) +
+    theme(
+      axis.title.x = element_blank(), 
+      axis.title.y = element_blank(),
+      axis.text.y = element_text(size = 7),
+      plot.caption = element_text(size = 9, color = "grey55"), 
+      panel.background = element_blank() # https://www.datanovia.com/en/blog/ggplot-theme-background-color-and-grids/
+    )
+  
+} else {
+  
+  print('NA')
+  
+}
+```
+
+## Out of sample predictions
+
+Text here ....
+
+```{r chunk2}
+#params$f
+df <- read_csv(paste0(getwd(),"/02-data_07-oos-preds.csv"))
+df <- df[, c('date_stamp', 'symbol', '.pred', unlist(preds))]    #### TO DO - DYNAMIC  df[, c('date_stamp', 'symbol', '.pred', unlist(preds))]
+df <- data.frame(lapply(df, function(x) if(is.numeric(x)) round(x, 3) else x))
+rmarkdown::paged_table(df)
+```
+
+## Stability-plasticity dilemma
+
+<http://www.mlfactor.com/causality.html>
+
+
+## Performance metrics
+
+Add percentage of correct sign 02-data_03-sp500.csv
+
+```{r chunk4}
+if (file.exists(paste0(getwd(),"/02-data_03-sp500.csv"))) {
+  
+  sp500_raw <- read_csv(paste0(getwd(),"/02-data_03-sp500.csv")) %>% 
+    arrange(date_stamp)
+  
+  date_filter <- min(vldtn_preds_raw$date_stamp)
+  
+  preds1 <- vldtn_preds_raw %>% 
+    group_by(date_stamp) %>% 
+    mutate(
+      fwd_rtn_dcl = ntile(.pred, 10),
+      fwd_rtn_dcl = paste0("fcast_rtn_dcl_", fwd_rtn_dcl)
+      ) %>% 
+    #filter(fwd_rtn_dcl == 10) %>% 
+    group_by(date_stamp, fwd_rtn_dcl) %>% 
+    summarise(
+      mean_fwd_rtn = mean(fwd_rtn_raw),
+      n = n()
+      ) %>% 
+    ungroup() %>% 
+    # Align date to month in which fcast return is earned
+    mutate(date_stamp = add_with_rollback(date_stamp, months(json_args$fwd_rtn_months))) %>% 
+    pivot_wider(-n, names_from = fwd_rtn_dcl, values_from = mean_fwd_rtn)
+  
+  # Add row to make cumsum work
+  preds <- bind_rows(
+    data.frame(setNames(c(as.list(date_filter), as.list(rep(0,ncol(preds1)-1))), names(preds1))), 
+    preds1
+    ) %>% 
+    arrange(date_stamp) %>% 
+    mutate(
+      fcast_cum_rtn_d10 = cumprod(1 + fcast_rtn_dcl_10),
+      fcast_cum_rtn_d01 = cumprod(1 + fcast_rtn_dcl_1)
+      )
+  
+  sp500 <- filter(sp500_raw, date_stamp >= date_filter) %>% 
+    group_by(date_stamp = floor_date(date_stamp, "month")) %>% 
+    mutate(date_stamp = ceiling_date(date_stamp, unit = "month") - 1) %>% 
+    summarise(adjusted_close = last(adjusted_close))
+  
+  sp500 <- sp500 %>% 
+    mutate(
+      rtn_ari_1m = replace_na((adjusted_close-lag(adjusted_close))/lag(adjusted_close), 0),
+      sp500_cum_rtn = cumprod(1 + rtn_ari_1m)
+      )
+  
+  
+  ggplot() +
+    geom_line(data = sp500, aes(x = date_stamp, y = sp500_cum_rtn, linetype = 'S&P 500')) +
+    geom_line(data = preds, aes(x = date_stamp, y = fcast_cum_rtn_d10, linetype = 'Model forecast decile 10')) +
+    geom_line(data = preds, aes(x = date_stamp, y = fcast_cum_rtn_d01, linetype = 'Model forecast decile 1')) +
+    labs(
+      x = '',
+      y = '',
+      title = 'Strategy and market returns'
+      ) +
+    scale_x_date(date_breaks = '1 years',
+                 date_labels = '%Y')  +
+    def_theme1 + theme(legend.position = c(0.2,0.8))
+  
+} else {
+  
+  print('NA')
+  
+}
+```
+
+## Files
+
+```{r chunk5}
+files <- list.files()
+df <- data.frame(files)
+rmarkdown::paged_table(df)
+```
+
+### File content  
+
+<br>
+
+*01-scripts_01-execute.bat*
+
+```{bash chunk6, eval = FALSE, code = readLines("01-scripts_01-execute.bat")}
+```
+
+<br>
+
+*01-scripts_03-get-data.R*
+
+```{r chunk7, eval = FALSE, code = readLines("01-scripts_03-get-data.R")}
+```
+
+<br>
+
+*01-scripts_04-train-model.R*
+
+```{r chunk8, eval = FALSE, code = readLines("01-scripts_04-train-model.R")}
+```
+
+<br>
+
+*01-scripts_05-score-new-data.R*
+
+```{r chunk8, eval = FALSE, code = readLines("01-scripts_05-score-new-data.R")}
+```
+
+<br>
+
+*01-scripts_06-call-render.R*
+
+```{r chunk7, eval = FALSE, code = readLines("01-scripts_06-call-render.R")}
+```

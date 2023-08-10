@@ -1,0 +1,11 @@
+{
+	"folder"			    :	"e01"
+	,"lookback_yrs"		:	20
+	,"fwd_rtn_months"	:	3
+	,"train_months"  	:	12
+	,"test_months"  	: 6
+	,"model_type"		  :	"linear regression"
+	,"cross_val_v"		: 3
+	,"error_metric"		:	"mse"
+	,"predictors"		  :	["rtn_ari_3m", "rtn_ari_12m"]
+}
