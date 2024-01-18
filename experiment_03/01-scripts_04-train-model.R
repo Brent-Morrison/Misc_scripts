@@ -326,6 +326,7 @@ saveRDS(final_model, paste0(getwd(),"/03-model_01-oos-pred-model"))
 
 # Empty list for loop results
 coefs_list <- list()
+coefs_list1 <- list()
 preds_list <- list()
 
 # Formula
@@ -403,7 +404,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     rename_with(~ tolower(.x)) %>% 
     mutate(
       across(starts_with("estimate"), 
-             ~ slide_dbl(.x = .x, .f = mean, .before = 11, .complete = TRUE),
+             ~ slide_dbl(.x = .x, .f = mean, .before = (n-1), .complete = TRUE),
              .names = "{col}^{as.character(n)}MA")
     )
   # TO DO: retain the monthly coefficients for future analysis
@@ -437,6 +438,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   # Add data frame to list
   preds_list[[i]] <- preds
   coefs_list[[i]] <- coefs_df
+  coefs_list1[[i]]<- mdl_fit[, c('date_stamp','estimate_intercept','estimate_rtn_ari_3m','estimate_rtn_ari_12m')]
   
 }
 
@@ -445,6 +447,8 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
 # Data frames in list to single data frame
 preds_all <- dplyr::bind_rows(preds_list)
 coefs_all <- dplyr::bind_rows(coefs_list)
+coefs_all1 <- dplyr::bind_rows(coefs_list1)
+coefs_all1 <- unique.data.frame(coefs_all1)
 
 
 # 13. Save final model object ----------------------------------------------------------------------------------------------

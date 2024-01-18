@@ -19,6 +19,10 @@ train_months   <- json_args$train_months
 test_months    <- json_args$test_months                                                   # out of sample test_months / stride
 model_type     <- json_args$model_type
 cross_val_v    <- json_args$cross_val_v
+x_sect_scale   <- as.logical(json_args$x_sect_scale)
+hyper_params   <- as.logical(json_args$hyper_params)
+train_on_qntls <- as.logical(json_args$train_on_qntls)
+
 
 print(paste0("Train months : ", train_months))
 print(paste0("Test months  : ", test_months))
@@ -38,11 +42,33 @@ start_month_idx <- n_months - ((test_months / fwd_rtn_months) * loops) + 1 - (tr
 
 
 # Empty list for loop results
+coefs_list <- list()
+coefs_list1 <- list()
 preds_list <- list()
 var_imp_list <- list()
 tune_metrics_list <- list()
 pred_shap_list <- list()
 
+# Models with no hyper-parameters, for use in conditional logic re variable importance and parameter grids
+model_no_hyper <- c("lm")
+
+# Formula for lm function call
+#f <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
+
+# Function to preprocess data
+preprocess <- function(df) {
+  df <- df %>% 
+    group_by(date_stamp) %>% 
+    mutate(
+      fwd_rtn     = as.vector(scale(fwd_rtn)),
+      rtn_ari_3m  = as.vector(scale(rtn_ari_3m)),
+      rtn_ari_12m = as.vector(scale(rtn_ari_12m))
+    ) %>% 
+    ungroup() %>% 
+    select(date_stamp, symbol, fwd_rtn, rtn_ari_3m, rtn_ari_12m)
+  
+  return(df)
+}
 
 # Loop sliding over time series ============================================================================================
 
@@ -75,22 +101,42 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   train <- training(split)
   test <- testing(split)
   
+  print(paste0("Sliding window : Train ", min(train1$date_stamp)," to ", max(train1$date_stamp), " || Test : ", min(test1$date_stamp), " to ", max(test1$date_stamp),")"))
+  
   
   # 3. Create resamples of the training data -------------------------------------------------------------------------------
-  
-  set.seed(123)
-  resamples <- group_vfold_cv(train, v = cross_val_v, group = date_char)
-  
+
+  if (hyper_params) {
+    set.seed(123)
+    resamples <- group_vfold_cv(train, v = cross_val_v, group = date_char)
+  }
   
   # 4. Preprocessing -------------------------------------------------------------------------------------------------------
   # https://stats.stackexchange.com/questions/258307/raw-or-orthogonal-polynomial-regression
   
-  recipe <- recipe(fwd_rtn ~ ., data = train) %>% 
-    update_role(date_stamp, new_role = 'date_stamp') %>% 
-    update_role(date_char, new_role = 'date_char') %>% 
-    update_role(symbol, new_role = 'symbol') #%>% 
-  #step_normalize(all_predictors()) 
-  #step_corr(all_predictors(), threshold = .5)
+  if (x_sect_scale) {
+    train <- preprocess(train)
+    test  <- preprocess(test)
+  } 
+  
+  if (train_on_qntls) {
+    train <- df_train %>% 
+      group_by(date_stamp) %>% 
+      mutate(qntl = ntile(fwd_rtn, 5)) %>% 
+      filter(qntl %in% c(1,5)) %>% 
+      ungroup() %>% 
+      select(-qntl)
+  }
+  
+  if (hyper_params) {
+    recipe <- recipe(fwd_rtn ~ ., data = train) %>% 
+      update_role(date_stamp, new_role = 'date_stamp') %>% 
+      update_role(date_char, new_role = 'date_char') %>% 
+      update_role(symbol, new_role = 'symbol') #%>% 
+      #step_normalize(all_predictors()) 
+      #step_corr(all_predictors(), threshold = .5)
+  } 
+
   
   
   # 5. Specify models(s) ---------------------------------------------------------------------------------------------------
@@ -112,23 +158,21 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     set_engine("earth") %>%
     set_mode("regression")
   
-  #lm_model <- linear_reg() %>% 
-  #  set_engine("lm") %>% 
-  #  set_mode("regression")
+  nn_model <- mlp(                # https://community.rstudio.com/t/extending-parsnip/99290
+    hidden_units = tune()
+    ) %>% 
+    set_engine("nnet") %>% 
+    set_mode("regression")
   
-  #nn_model <- mlp(                # https://community.rstudio.com/t/extending-parsnip/99290
-  #  hidden_units = tune()
-  #  ) %>% 
-  #  set_engine("nnet") %>% 
-  #  set_mode("regression")
-  
-  #rf_model <- rand_forest(
-  #  mtry = tune(),                # An integer for the number of predictors that will be randomly sampled at each split when creating the tree models
-  #  min_n = 100,                  # An integer for the minimum number of data points in a node
-  #  trees = 250                   # An integer for the number of trees contained in the ensemble
-  #  ) %>% 
-  #  set_engine("randomForest", importance = TRUE) %>% 
-  #  set_mode("regression")
+  rf_model <- rand_forest(
+    mtry = tune(),                # An integer for the number of predictors that will be randomly sampled at each split when creating the tree models
+    min_n = 100,                  # An integer for the minimum number of data points in a node
+    trees = 250                   # An integer for the number of trees contained in the ensemble
+    ) %>% 
+    set_engine("randomForest", importance = TRUE) %>% 
+    set_mode("regression")
+	
+  lm_model <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
 
   if (model_type == "xgb") {
     model <- xgb_model
@@ -136,6 +180,8 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     model <- mars_model
   } else if (model_type == "rf") {
     model <- rf_model
+  } else if (model_type == "lm") {
+    model <- lm_model
   } else {
     model <- nn_model
   } 
@@ -144,88 +190,123 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   
   
   # 6. Create parameter grid -----------------------------------------------------------------------------------------------
+  # Steps 6 though 10 for models with hyper-parameters only
   
-  xgb_grid <- grid_regular(
-    mtry(range = c(5, 9)), 
-    #min_n(range = c(6, 8)),
-    tree_depth(range = c(3, 7)),
-    levels = 2
+  if (hyper_params) {
+    
+    xgb_grid <- grid_regular(
+      mtry(range = c(5, 9)), 
+      #min_n(range = c(6, 8)),
+      tree_depth(range = c(3, 7)),
+      levels = 2
+      )
+    
+    mars_grid <- grid_regular(       # http://www.milbo.org/doc/earth-notes.pdf
+      num_terms(range = c(5, 8)),    # nprune - maximum number of terms (including intercept) in the pruned model
+      prod_degree(range = c(1, 2)),  # degree - the highest possible degree of interaction between features
+      levels = 5
+      )
+    
+    nn_grid <- grid_regular(
+      hidden_units(range = c(3, 5))
+      )
+    
+    rf_grid <- grid_regular(
+      mtry(range = c(5, 10)), 
+      #min_n(range = c(6, 8)),
+      #trees(range = c(1000, 1500))
+      levels = 2
+      )
+   
+    if (model_type == "xgb") {
+      grid <- xgb_grid
+    } else if (model_type == "mars") {
+      grid <- mars_grid
+    } else if (model_type == "rf") {
+      grid <- rf_grid
+    } else {
+      grid <- nn_grid
+    } 
+    
+    
+    # 6. Create workflow -----------------------------------------------------------------------------------------------------
+    
+    workflow <- workflow() %>% 
+      add_model(model) %>%
+      add_recipe(recipe)
+    
+    
+    # 7. Fit re-samples ------------------------------------------------------------------------------------------------------
+    
+    tune_resamples <- tune::tune_grid(
+      object = workflow, 
+      resamples = resamples,
+      grid = grid,
+      # ensure metric corresponds to regression / classification
+      metrics = metric_set(mae),                                                   #### PARAMETER ####
+      control = control_grid(save_pred = TRUE)
     )
+    
+    
+    # 7.1 Assess stability of model ------------------------------------------------------------------------------------------
+    # Export - determine if the different hyperparameter specifications lead to different loss
+    tune_metrics <- tune::collect_metrics(tune_resamples, summarize = FALSE)
+    
+    
+    # 8. Select best parameters ----------------------------------------------------------------------------------------------
+    best_param <- tune::select_best(tune_resamples, metric = "mae")
+    
+    
+    # 9. Finalise workflow ---------------------------------------------------------------------------------------------------
+    final_workflow <- tune::finalize_workflow(workflow, best_param)
+    
+    
+    # 10. Final fit (fit best model to the training set) ---------------------------------------------------------------------
+    
+    set.seed(456)
+    final_fit <- tune::last_fit(final_workflow, split) 
+    
+  } else if (model_type == "lm") {
+    
+    # Sliding window size for average betas
+    n <- length(unique(train$date_stamp))
+    
+    lm_fit <- train %>% 
+      nest_by(date_stamp) %>% 
+      mutate(model = list(lm(f_lm, data = data))) %>% 
+      summarise(tidy(model)) %>% 
+      pivot_wider(names_from = term, values_from = c(estimate, std.error, statistic, p.value)) %>% 
+      ungroup() %>% 
+      rename_with(~ gsub(pattern = "[()]", replacement = "", x = .x)) %>% 
+      rename_with(~ tolower(.x)) %>% 
+      mutate(
+        across(starts_with("estimate"), 
+               ~ slide_dbl(.x = .x, .f = mean, .before = (n-1), .complete = TRUE),
+               .names = "{col}^{as.character(n)}MA")
+      )
+    
+    # Extract PIT coefficients TO DO: retain the monthly coefficients for future analysis
+    
+    # Extract averaged coefficients
+    coefs <- t(as.matrix(lm_fit[lm_fit$date_stamp == max(lm_fit$date_stamp), grepl("\\^", names(lm_fit))]))
+    coefs_df <- as.data.frame(t(coefs))
+  }
   
-  mars_grid <- grid_regular(       # http://www.milbo.org/doc/earth-notes.pdf
-    num_terms(range = c(5, 8)),    # nprune - maximum number of terms (including intercept) in the pruned model
-    prod_degree(range = c(1, 2)),  # degree - the highest possible degree of interaction between features
-    levels = 5
-    )
+  # 10.1 Evaluate / predict on the test set --------------------------------------------------------------------------------
   
-  #nn_grid <- grid_regular(
-  #  hidden_units(range = c(3, 5))
-  #  )
-  
-  #rf_grid <- grid_regular(
-  #  mtry(range = c(5, 10)), 
-  #  #min_n(range = c(6, 8)),
-  #  #trees(range = c(1000, 1500))
-  #  levels = 2
-  #  )
-  
-  #xgb_grid <- grid_regular(
-  #  mtry(range = c(5, 9)), 
-  #  #min_n(range = c(6, 8)),
-  #  tree_depth(range = c(3, 7)),
-  #  levels = 3
-  #)
- 
-  if (model_type == "xgb") {
-    grid <- xgb_grid
-  } else if (model_type == "mars") {
-    grid <- mars_grid
-  } else if (model_type == "rf") {
-    grid <- rf_grid
-  } else {
-    grid <- nn_grid
-  } 
-  
-  
-  # 6. Create workflow -----------------------------------------------------------------------------------------------------
-  
-  workflow <- workflow() %>% 
-    add_model(model) %>%
-    add_recipe(recipe)
-  
-  
-  # 7. Fit re-samples ------------------------------------------------------------------------------------------------------
-  
-  tune_resamples <- tune::tune_grid(
-    object = workflow, 
-    resamples = resamples,
-    grid = grid,
-    # ensure metric corresponds to regression / classification
-    metrics = metric_set(mae),                                                   #### PARAMETER ####
-    control = control_grid(save_pred = TRUE)
-  )
-  
-  
-  # 7.1 Assess stability of model ------------------------------------------------------------------------------------------
-  # Export - determine if the different hyperparameter specifications lead to different loss
-  tune_metrics <- tune::collect_metrics(tune_resamples, summarize = FALSE)
-  
-  
-  # 8. Select best parameters ----------------------------------------------------------------------------------------------
-  best_param <- tune::select_best(tune_resamples, metric = "mae")
-  
-  
-  # 9. Finalise workflow ---------------------------------------------------------------------------------------------------
-  final_workflow <- tune::finalize_workflow(workflow, best_param)
-  
-  
-  # 10. Final fit (fit best model to the training set) ---------------------------------------------------------------------
-  
-  set.seed(456)
-  final_fit <- tune::last_fit(final_workflow, split) 
-  
-  # 10.1 Evaluate the test set
-  preds <- tune::collect_predictions(final_fit)
+  if (hyper_params) {
+    
+    preds <- tune::collect_predictions(final_fit)
+    
+  } else if (model_type == "lm") {
+    
+    model_mat <- as.matrix(cbind(intercept = rep(1,nrow(test)), test[, paste(json_args$predictors)]))
+    preds <- as.vector(model_mat %*% coefs)
+    
+    # Join labels to predictions
+    preds <- bind_cols(.pred = preds, select(test, symbol, date_stamp, fwd_rtn), select(test1, fwd_rtn) %>% rename(fwd_rtn_raw = fwd_rtn))
+    
+  }
   
   # Join labels to predictions
   preds <- bind_cols(preds, select(test, symbol, date_stamp))
@@ -237,7 +318,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   fit_model <- extract_fit_engine(final_fit)
   
   # Prediction wrapper
-  # this function must return a numeric vector of predicted outcomes (not a matrix)
+  # this function must return a numeric vector of predicted outcomes ### NOT A MATRIX ####
   pfun <- function(object, newdata) {
     if (model_type == "mars") {
       p <- predict(object, newdata = newdata)
