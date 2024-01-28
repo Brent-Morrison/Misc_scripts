@@ -284,7 +284,9 @@ rmarkdown::paged_table(df)
 
 ## Stability-plasticity dilemma
 
-<http://www.mlfactor.com/causality.html>
+<http://www.mlfactor.com/causality.html>  
+
+Assess how model parameters (for regression type models) and hyper-parameters change across back-test windows
 
 
 ## Performance metrics

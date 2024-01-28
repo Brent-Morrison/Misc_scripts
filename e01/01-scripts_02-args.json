@@ -1,11 +1,14 @@
 {
 	"folder"			    :	"e01"
-	,"lookback_yrs"		:	20
-	,"fwd_rtn_months"	:	3
-	,"train_months"  	:	12
+	,"lookback_yrs"		:	8
+	,"fwd_rtn_months"	:	2
+	,"train_months"  	:	24
 	,"test_months"  	: 6
-	,"model_type"		  :	"linear regression"
+	,"model_type"		  :	"lm"
+	,"x_sect_scale"		:	"TRUE"
+	,"hyper_params"		:	"FALSE"
+	,"train_on_qntls"	:	"FALSE"
 	,"cross_val_v"		: 3
-	,"error_metric"		:	"mse"
+	,"error_metric"		:	"mae"
 	,"predictors"		  :	["rtn_ari_3m", "rtn_ari_12m"]
 }

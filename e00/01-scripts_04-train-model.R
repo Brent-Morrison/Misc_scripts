@@ -6,10 +6,13 @@ library(tidymodels)
 library(slider)
 library(readr)
 #library(xgboost)
-#library(earth)
+library(earth)
 library(fastshap)
 library(jsonlite)
+library(romerb)
 
+
+# 'ggparcoord' for eda visualisation, https://uc-r.github.io/gda | https://homepage.divms.uiowa.edu/~luke/classes/STAT4580/parcor.html | https://ggobi.github.io/ggally/reference/ggparcoord.html
 
 # External parameters
 json_args <- jsonlite::read_json(paste0(getwd(),"/01-scripts_02-args.json"))
@@ -24,13 +27,17 @@ hyper_params   <- as.logical(json_args$hyper_params)
 train_on_qntls <- as.logical(json_args$train_on_qntls)
 
 
-print(paste0("Train months : ", train_months))
-print(paste0("Test months  : ", test_months))
-print(paste0("Fcast months : ", fwd_rtn_months))
-print(paste0("Model type   : ", model_type))
+print(paste0("Train months        : ", train_months))
+print(paste0("Test months         : ", test_months))
+print(paste0("Fcast months        : ", fwd_rtn_months))
+print(paste0("Model type          : ", model_type))
+print(paste0("X-sect scaling      : ", model_type))
+print(paste0("Hyper params        : ", model_type))
+print(paste0("Train on quintiles  : ", model_type))
 
 # Read data
-df_train <- read_csv(paste0(getwd(),"/02-data_01-training.csv"))
+df_train <- read_csv(paste0(getwd(),"/02-data_01-training.csv")) %>% 
+  mutate(across(date_char, ~ as.character(.)))
 
 
 # Loop parameters
@@ -53,22 +60,24 @@ pred_shap_list <- list()
 model_no_hyper <- c("lm")
 
 # Formula for lm function call
-#f <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
+f <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
 
 # Function to preprocess data
-preprocess <- function(df) {
+preprocess <- function(df, preds) { #xsect_scale
+  
+  stopifnot("Required columns not present" = min(c("date_stamp", "date_char", "symbol", "fwd_rtn") %in% names(df)) == 1)
+  stopifnot("One of selected predictor columns not present" = min(unlist(preds) %in% names(df)) == 1)
+  
   df <- df %>% 
     group_by(date_stamp) %>% 
-    mutate(
-      fwd_rtn     = as.vector(scale(fwd_rtn)),
-      rtn_ari_3m  = as.vector(scale(rtn_ari_3m)),
-      rtn_ari_12m = as.vector(scale(rtn_ari_12m))
-    ) %>% 
+    mutate(across(.cols = unlist(preds), .fns = ~ as.vector(scale(.x)))) %>% 
     ungroup() %>% 
-    select(date_stamp, symbol, fwd_rtn, rtn_ari_3m, rtn_ari_12m)
+    select(date_stamp, date_char, symbol, fwd_rtn, unlist(preds))
   
   return(df)
 }
+
+xsect_scale(df_train, json_args$predictors)
 
 # Loop sliding over time series ============================================================================================
 
@@ -101,7 +110,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   train <- training(split)
   test <- testing(split)
   
-  print(paste0("Sliding window : Train ", min(train1$date_stamp)," to ", max(train1$date_stamp), " || Test : ", min(test1$date_stamp), " to ", max(test1$date_stamp),")"))
+  print(paste0("Sliding window : Train ", min(train$date_stamp)," to ", max(train$date_stamp), " || Test : ", min(test$date_stamp), " to ", max(test$date_stamp)))
   
   
   # 3. Create resamples of the training data -------------------------------------------------------------------------------
@@ -129,10 +138,12 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   }
   
   if (hyper_params) {
-    recipe <- recipe(fwd_rtn ~ ., data = train) %>% 
+    recipe <- recipe(train) %>% 
       update_role(date_stamp, new_role = 'date_stamp') %>% 
       update_role(date_char, new_role = 'date_char') %>% 
-      update_role(symbol, new_role = 'symbol') #%>% 
+      update_role(symbol, new_role = 'symbol') %>% 
+      update_role(unlist(json_args$predictors), new_role = 'predictor') %>% 
+      update_role(fwd_rtn, new_role = 'outcome')#%>% 
       #step_normalize(all_predictors()) 
       #step_corr(all_predictors(), threshold = .5)
   } 
@@ -266,14 +277,14 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     set.seed(456)
     final_fit <- tune::last_fit(final_workflow, split) 
     
-  } else if (model_type == "lm") {
+  }	 else if (model_type == "lm") {
     
     # Sliding window size for average betas
     n <- length(unique(train$date_stamp))
     
-    lm_fit <- train %>% 
+    final_fit <- train %>% 
       nest_by(date_stamp) %>% 
-      mutate(model = list(lm(f_lm, data = data))) %>% 
+      mutate(model = list(lm(f, data = data))) %>% 
       summarise(tidy(model)) %>% 
       pivot_wider(names_from = term, values_from = c(estimate, std.error, statistic, p.value)) %>% 
       ungroup() %>% 
@@ -288,15 +299,18 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     # Extract PIT coefficients TO DO: retain the monthly coefficients for future analysis
     
     # Extract averaged coefficients
-    coefs <- t(as.matrix(lm_fit[lm_fit$date_stamp == max(lm_fit$date_stamp), grepl("\\^", names(lm_fit))]))
+    coefs <- t(as.matrix(final_fit[final_fit$date_stamp == max(final_fit$date_stamp), grepl("\\^", names(final_fit))]))
     coefs_df <- as.data.frame(t(coefs))
   }
   
-  # 10.1 Evaluate / predict on the test set --------------------------------------------------------------------------------
+  # 11. Evaluate model / predict on the test set ----------------------------------------------------------------------------
   
   if (hyper_params) {
     
     preds <- tune::collect_predictions(final_fit)
+	
+	# Join labels to predictions
+  preds <- bind_cols(preds, select(test, symbol, date_stamp))
     
   } else if (model_type == "lm") {
     
@@ -304,21 +318,27 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     preds <- as.vector(model_mat %*% coefs)
     
     # Join labels to predictions
-    preds <- bind_cols(.pred = preds, select(test, symbol, date_stamp, fwd_rtn), select(test1, fwd_rtn) %>% rename(fwd_rtn_raw = fwd_rtn))
+    preds <- bind_cols(.pred = preds, select(test, symbol, date_stamp, fwd_rtn), select(test, fwd_rtn) %>% rename(fwd_rtn_raw = fwd_rtn))
     
   }
   
-  # Join labels to predictions
-  preds <- bind_cols(preds, select(test, symbol, date_stamp))
+  
+  # 12. Extract model specific variable importance -------------------------------------------------------------------------
+  # TO DO: document how variable importance is derived for different models
+  # https://koalaverse.github.io/vip/articles/vip.html | https://koalaverse.github.io/vip/reference/vi_model.html
+  
+  if (hyper_params) {
+	  fit_model <- extract_fit_engine(final_fit)
+	} else {
+	  fit_model <- final_fit
+	}
+	
+  var_imp <- fit_model %>% vip::vi_model()
   
   
-  # Extract VI into dataframe  TO DO: document how variable importance is derived for different models
-  var_imp <- extract_fit_engine(final_fit) %>% vip::vi()
+  # 13. Extract model agnostic (Shapley) variable importance ---------------------------------------------------------------
   
-  fit_model <- extract_fit_engine(final_fit)
-  
-  # Prediction wrapper
-  # this function must return a numeric vector of predicted outcomes ### NOT A MATRIX ####
+  # Prediction wrapper, this function must return a numeric vector of predicted outcomes ### NOT A MATRIX ####
   pfun <- function(object, newdata) {
     if (model_type == "mars") {
       p <- predict(object, newdata = newdata)
@@ -341,19 +361,19 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   
   
   # Label start & end date
-  preds$start <- start
-  preds$end <- end
-  var_imp$start <- start
-  var_imp$end <- end
-  preds_shap$start <- start
-  preds_shap$end <- end
+  preds$start        <- start
+  preds$end          <- end
+  var_imp$start      <- start
+  var_imp$end        <- end
+  preds_shap$start   <- start
+  preds_shap$end     <- end
   tune_metrics$start <- start
-  tune_metrics$end <- end
+  tune_metrics$end   <- end
   
   # Add data frame to list
-  preds_list[[i]] <- preds
-  var_imp_list[[i]] <- var_imp
-  pred_shap_list[[i]] <- preds_shap
+  preds_list[[i]]        <- preds
+  var_imp_list[[i]]      <- var_imp
+  pred_shap_list[[i]]    <- preds_shap
   tune_metrics_list[[i]] <- tune_metrics
   
 }
@@ -362,9 +382,9 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
 
 
 # Data frames in list to single data frame
-preds_all <- dplyr::bind_rows(preds_list)
-var_imp_all <- dplyr::bind_rows(var_imp_list)
-preds_shap_all <- dplyr::bind_rows(pred_shap_list)
+preds_all        <- dplyr::bind_rows(preds_list)
+var_imp_all      <- dplyr::bind_rows(var_imp_list)
+preds_shap_all   <- dplyr::bind_rows(pred_shap_list)
 tune_metrics_all <- dplyr::bind_rows(tune_metrics_list)
 
 

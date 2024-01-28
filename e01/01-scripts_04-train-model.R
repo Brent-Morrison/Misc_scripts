@@ -5,6 +5,8 @@ library(DescTools)
 library(tidymodels)
 library(slider)
 library(readr)
+#library(xgboost)
+#library(earth)
 library(fastshap)
 library(jsonlite)
 
@@ -17,6 +19,10 @@ train_months   <- json_args$train_months
 test_months    <- json_args$test_months                                                   # out of sample test_months / stride
 model_type     <- json_args$model_type
 cross_val_v    <- json_args$cross_val_v
+x_sect_scale   <- as.logical(json_args$x_sect_scale)
+hyper_params   <- as.logical(json_args$hyper_params)
+#train_on_qntls <- as.logical(json_args$train_on_qntls)
+
 
 print(paste0("Train months : ", train_months))
 print(paste0("Test months  : ", test_months))
@@ -39,9 +45,15 @@ start_month_idx <- n_months - ((test_months / fwd_rtn_months) * loops) + 1 - (tr
 coefs_list <- list()
 coefs_list1 <- list()
 preds_list <- list()
+var_imp_list <- list()
+tune_metrics_list <- list()
+pred_shap_list <- list()
 
-# Formula
-f <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
+# Models with no hyper-parameters, for use in conditional logic re variable importance and parameter grids
+model_no_hyper <- c("lm")
+
+# Formula for lm function call
+f_lm <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
 
 # Function to preprocess data
 preprocess <- function(df) {
@@ -58,8 +70,8 @@ preprocess <- function(df) {
   return(df)
 }
 
+# Loop sliding over time series ============================================================================================
 
-# Back test loop
 for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.out = loops)) {
   
   start <- months[i]
@@ -70,7 +82,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   # 2. Specify training and testing split ----------------------------------------------------------------------------------
   
   test_start_date <- as.Date(mondate::mondate(max(df$date_stamp)) - test_months + fwd_rtn_months)
-  #print(paste0("Sliding window : ", start," to ", end, " (test : ", test_start_date, " to ", end,")"))
+  print(paste0("Sliding window : ", start," to ", end, " (test : ", test_start_date, " to ", end,")"))
   
   # Sort so that index for test split is appropriate
   df <- arrange(df, date_stamp, symbol)
@@ -106,10 +118,9 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   # Sliding window size for average betas
   n <- length(unique(train$date_stamp))
   
-  mdl_fit <- train %>% 
+  lm_fit <- train %>% 
     nest_by(date_stamp) %>% 
-    #mutate(model = list(lm(fwd_rtn ~ rtn_ari_3m + rtn_ari_12m, data = data))) %>% 
-    mutate(model = list(lm(f, data = data))) %>% 
+    mutate(model = list(lm(f_lm, data = data))) %>% 
     summarise(tidy(model)) %>% 
     pivot_wider(names_from = term, values_from = c(estimate, std.error, statistic, p.value)) %>% 
     ungroup() %>% 
@@ -124,14 +135,15 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   # Extract PIT coefficients TO DO: retain the monthly coefficients for future analysis
   
   # Extract averaged coefficients
-  coefs <- t(as.matrix(mdl_fit[mdl_fit$date_stamp == max(mdl_fit$date_stamp), grepl("\\^", names(mdl_fit))]))
+  coefs <- t(as.matrix(lm_fit[lm_fit$date_stamp == max(lm_fit$date_stamp), grepl("\\^", names(lm_fit))]))
   coefs_df <- as.data.frame(t(coefs))
   
   
   
-  # # 10.1 Evaluate the test set -------------------------------------------------------------------------------------------
+  # 10.1 Evaluate / predict on the test set --------------------------------------------------------------------------------
   
-  model_mat <- as.matrix(cbind(intercept = rep(1,nrow(test)), test[, c('rtn_ari_3m', 'rtn_ari_12m')]))
+  #model_mat <- as.matrix(cbind(intercept = rep(1,nrow(test)), test[, c('rtn_ari_3m', 'rtn_ari_12m')]))
+  model_mat <- as.matrix(cbind(intercept = rep(1,nrow(test)), test[, paste(json_args$predictors)]))
   preds <- as.vector(model_mat %*% coefs)
   
   # Join labels to predictions
@@ -151,11 +163,12 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   # Add data frame to list
   preds_list[[i]] <- preds
   coefs_list[[i]] <- coefs_df
-  coefs_list1[[i]]<- mdl_fit[, c('date_stamp','estimate_intercept','estimate_rtn_ari_3m','estimate_rtn_ari_12m')]
+  coefs_list1[[i]]<- lm_fit[, c('date_stamp','estimate_intercept','estimate_rtn_ari_3m','estimate_rtn_ari_12m')]
   
 }
 
 # End loop =================================================================================================================
+
 
 # Data frames in list to single data frame
 preds_all <- dplyr::bind_rows(preds_list)

@@ -1,5 +1,8 @@
 # https://www.johnmackintosh.net/blog/2021-11-01-scheduling/
 
+# Conditional chunck execution
+# https://www.nagraj.net/notes/conditional-r-markdown/
+
 library(rmarkdown)
 library(jsonlite)
 

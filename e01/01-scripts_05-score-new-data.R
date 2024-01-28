@@ -7,15 +7,13 @@ library(readr)
 # Data
 df <- read_csv(paste0(getwd(),"/02-data_02-scoring.csv"))
 
+# Needs to be the same as the function in training file
 preprocess <- function(df) {
   df <- df %>% 
     group_by(date_stamp) %>% 
-    mutate(
-      rtn_ari_3m  = as.vector(scale(rtn_ari_3m)),
-      rtn_ari_12m = as.vector(scale(rtn_ari_12m))
-    ) %>% 
+    mutate(across(.cols = unlist(json_args$predictors), .fns = ~ as.vector(scale(.x)))) %>% 
     ungroup() %>% 
-    select(date_stamp, symbol, rtn_ari_3m, rtn_ari_12m)
+    select(date_stamp, symbol, unlist(json_args$predictors))
   
   return(df)
 }

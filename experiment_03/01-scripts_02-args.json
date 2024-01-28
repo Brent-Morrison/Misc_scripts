@@ -1,5 +1,5 @@
 {
-	"lookback_yrs"		:	8,
+	"lookback_yrs"		:	10,
 	"folder"			:	"experiment_03",
 	"fwd_rtn_months"	:	2,
 	"train_months"  	:	24,

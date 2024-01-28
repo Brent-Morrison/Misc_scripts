@@ -1,11 +1,14 @@
 {
-	"lookback_yrs"		:	8,
-	"folder"			:	"experiment_03",
-	"fwd_rtn_months"	:	2,
-	"train_months"  	:	24,
-	"test_months"  		:   6,
-	"model_type"		:	"mars",
-	"cross_val_v"		: 	3,
-	"error_metric"		:	"mae",
-	"predictors"		:	["rtn_ari_3m", "rtn_ari_12m"]
+	"folder"			:	"e00"
+	,"lookback_yrs"		:	8
+	,"fwd_rtn_months"	:	3
+	,"train_months"  	:	36
+	,"test_months"  	:   6
+	,"model_type"		:	"mars"
+	,"x_sect_scale"		:	"FALSE"
+	,"hyper_params"		:	"TRUE"
+	,"train_on_qntls"	:	"FALSE"
+	,"cross_val_v"		: 	3
+	,"error_metric"		:	"mae"
+	,"predictors"		:	["rtn_ari_3m", "rtn_ari_12m", "perc_range_12m"]
 }
