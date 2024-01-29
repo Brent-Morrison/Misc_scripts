@@ -1,55 +1,134 @@
-price0 <- 15
-price_growth <- 0.03
-volumes <- c(150, 155, 160, 170, 180)
-r <- 0.02
+library(tidyverse)
+library(readxl)
+library(readr)
 
-prices <- price0 * (1+price_growth) ^ (1:5)
-revenue <- prices * volumes
+# https://www.esc.vic.gov.au/sites/default/files/documents/SEW_2023%20Price%20Review%20Model%20-%202022-09-09%20-%20SUBMISSION%20FINAL.xlsm
+path <- "SEW_2023 Price Review Model - 2022-09-09 - SUBMISSION FINAL.xlsm"
 
-npv_func0 <- function(cashflows, r) {
-  sum(cashflows / (1 + r) ^ (1:length(cashflows)))
+date <- read_xlsx(path, range = "KeyAssumptionsPriceControl_FO!X6:AL6", col_names = FALSE)
+cost_of_debt <- read_xlsx(path, range = "KeyAssumptionsPriceControl_FO!X23:AL23", col_names = FALSE)
+
+# ---------------------------------------------------------------------------------------------------------
+# Function reading table
+# ---------------------------------------------------------------------------------------------------------
+
+xl_to_df <- function(file, sheet=NULL, table=NULL, date_range, cols_range, data_range) {
+  dates <- read_xlsx(path, range = paste0(sheet,"!",date_range), col_names = FALSE)
+  cols <- read_xlsx(path, range = paste0(sheet,"!",cols_range), col_names = FALSE)
+  data <- read_xlsx(path, range = paste0(sheet,"!",data_range), col_names = FALSE)
+  
+  df <- data.frame(data)
+  names(df) <- t(dates)
+  rownames(df) <- tolower(gsub(" ", "_", cols$...1))
+  
+  if (!is.null(sheet)) {
+    df$sheet <- tolower(sheet)
+  }
+  
+  if (!is.null(table)) {
+    df$table <- tolower(table)
+  }
+  
+  df <- as_tibble(df, rownames = "field") %>% relocate(any_of(c("sheet", "table")), .before = field)
+  df
+  
 }
 
-pv_rev <- npv_func0(revenue, r) 
+
+new_opex <- xl_to_df(path, sheet="Opex_Breakdown", table="water", date_range="X6:AL6", cols_range="D51:D56", data_range="X51:AL56")
 
 
 
 
+# ---------------------------------------------------------------------------------------------------------
+# Collecting price, quantity & revenue data, replicating derivation of r
+# ---------------------------------------------------------------------------------------------------------
 
-npv_func1 <- function(npv_required, price0, price_growth, volumes, r) {
-  prices <- price0 * (1+price_growth) ^ (1:5)
-  revenue <- prices * volumes
-  npv_rev <- sum(revenue / (1 + r) ^ (1:length(revenue)))
-  obj <- (npv_required - npv_rev)^2
+pqr <- read_xlsx(path, range = paste0("RevenuePriceCap_FO","!","E68:AL443"), col_names = TRUE)
+q <- as.matrix(pqr %>% filter(PQR == 'Qty') %>% select(`2023-24`:`2027-28`)) #select(c(PQR:Unit,`2023-24`:`2027-28`))
+q[is.na(q)] <- 0
+
+p <- as.matrix(pqr %>% filter(PQR == 'Price') %>% select(`2023-24`:`2027-28`)) #select(c(PQR:Unit,`2023-24`:`2027-28`))
+p[is.na(p)] <- 0
+
+r <- p* q
+
+tariff_revenue <- colSums(r) / 1e6
+tariff_revenue
+sum(tariff_revenue)
+
+
+
+# Get period zero prices
+p0 <- as.matrix(pqr %>% filter(PQR == 'Price') %>% select(`2022-23`)) #select(c(PQR:Unit,`2023-24`:`2027-28`))
+p0[is.na(p0)] <- 0
+
+
+# Define price delta (pd) & convert to cumulative change for matrix multiplication
+pd1 <- c(rep(0, 2), rep(0.0483, 3))            # option 1, zero in first two years
+pd2 <- c(rep(0.009, 2), rep(0.025, 3))         # option 2, 0.9% in first year
+
+pdyr <- 2                                                 # Price delta year
+pdpar <- c(0.009, 0.025)                                  # Price delta to optimise (parameter)
+pdvec <- c(rep(pdpar[1], pdyr - 1), rep(pdpar[2], 5 - pdyr + 1))  # Vector of price changes
+pd <- exp(cumsum( log(1 + pdvec) )) - 1
+pnew <- p0 %*% (1 + pd)
+
+r <- pnew * q
+tariff_revenue <- colSums(r) / 1e6
+tariff_revenue
+sum(tariff_revenue)
+
+
+# Optimisation / price goal seek
+npv_optim_func <- function(theta, pdyr, npv_required, p0, q) {
+  
+  # https://r-pkgs.org/man.html
+  
+  pdpar        <- theta[-1]
+  rrr          <- theta[1]
+  
+  pdvec        <- c(rep(pdpar[1], pdyr - 1), rep(pdpar[2], 5 - pdyr + 1))
+  pd           <- exp(cumsum( log(1 + pdvec) )) - 1
+  pnew         <- p0 %*% (1 + pd)
+  r            <- pnew * q
+  
+  tot_r        <- colSums(r) / 1e6
+  npv_tot_r    <- sum(tot_r / (1 + rrr) ^ (1:length(tot_r)))
+  obj          <- (npv_required - npv_tot_r) ^ 2
+  
   return(obj)
+  
 }
 
 
-npv_func1(npv_required=12700, price0, price_growth, volumes, r)
+
+# Test function
+pdpar <- c(0.009, 0.025)
+theta <- c(0.043, pdpar)
+npv_optim_func(theta, pdyr=2, npv_required=635.72, p0, q)
 
 
 
-npv_func2 <- function(theta, npv_required, price0, volumes) {
-  price_growth <- theta[1]
-  r <- theta[2]
-  prices <- price0 * (1 + price_growth) ^ (1:5)
-  revenue <- prices * volumes
-  npv_rev <- sum(revenue / (1 + r) ^ (1:length(revenue)))
-  obj <- (npv_required - npv_rev)^2
-  return(obj)
-}
-
-theta <- c(0.03, 0.02)
-npv_func2(theta, npv_required=12700, price0, volumes)
-
+# Perform optimisation
 optim(
-  par = c(0.02, 0.02), # Initial values for the parameters to be optimized over
-  fn  = npv_func2,     # Function to be minimized, first argument being vector of parameters over which minimization is to take place
-  method = "L-BFGS-B", 
-  lower = c(0.00, 0.02-1e-8), 
-  upper = c(0.05, 0.02+1e-8),
-  # ... Further arguments to be passed to fn 
-  npv_required = 12000,
-  price0 = 15,
-  volumes = c(150, 155, 160, 170, 180)
-  )
+  
+  # Initial values for the parameters to be optimized over
+  par = c(0.043, 0.09, 0.02),
+  
+  # Function to be minimized, first argument being vector of parameters over which minimization is applied
+  fn  = npv_optim_func,
+  
+  method = "L-BFGS-B",
+  
+  # Upper & lower constraints for parameters | use .Machine$double.eps ??
+  lower = c(0.043-.Machine$double.eps, 0.009-1e-8, 0),
+  upper = c(0.043+.Machine$double.eps, 0.009+1e-8, 1),
+  
+  # ... Further arguments to be passed to fn
+  pdyr=2,
+  npv_required = 635.72,
+  p0 = p0,
+  q = q
+  
+)
