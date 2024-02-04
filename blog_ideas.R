@@ -1506,3 +1506,15 @@ dbWriteTable(con, Id(schema = "reference", table = "permno_ticker_iw"), db_write
 #Monthly data only
 #monthly <- d[, ..monthly_cols]
 #setorder(monthly, permno, date_stamp)
+
+ns <- c("02","05","10", "14")
+z <- 0
+for (i in 1:15) {
+  if (i %in% as.numeric(ns)) {
+    z <- i
+    print(c(i, z))
+  } else {
+    print(c(i, z))
+  }
+  
+}

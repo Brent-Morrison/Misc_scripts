@@ -26,14 +26,14 @@ x_sect_scale   <- as.logical(json_args$x_sect_scale)
 hyper_params   <- as.logical(json_args$hyper_params)
 train_on_qntls <- as.logical(json_args$train_on_qntls)
 
-
+print("BACKTEST PARAMETERS ====")
 print(paste0("Train months        : ", train_months))
 print(paste0("Test months         : ", test_months))
 print(paste0("Fcast months        : ", fwd_rtn_months))
 print(paste0("Model type          : ", model_type))
-print(paste0("X-sect scaling      : ", model_type))
-print(paste0("Hyper params        : ", model_type))
-print(paste0("Train on quintiles  : ", model_type))
+print(paste0("X-sect scaling      : ", x_sect_scale))
+print(paste0("Hyper params        : ", hyper_params))
+print(paste0("Train on quintiles  : ", train_on_qntls))
 
 # Read data
 df_train <- read_csv(paste0(getwd(),"/02-data_01-training.csv")) %>% 
@@ -57,27 +57,27 @@ tune_metrics_list <- list()
 pred_shap_list <- list()
 
 # Models with no hyper-parameters, for use in conditional logic re variable importance and parameter grids
-model_no_hyper <- c("lm")
+#model_no_hyper <- c("lm")
 
 # Formula for lm function call
 f <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
 
 # Function to preprocess data
-preprocess <- function(df, preds) { #xsect_scale
-  
-  stopifnot("Required columns not present" = min(c("date_stamp", "date_char", "symbol", "fwd_rtn") %in% names(df)) == 1)
-  stopifnot("One of selected predictor columns not present" = min(unlist(preds) %in% names(df)) == 1)
-  
-  df <- df %>% 
-    group_by(date_stamp) %>% 
-    mutate(across(.cols = unlist(preds), .fns = ~ as.vector(scale(.x)))) %>% 
-    ungroup() %>% 
-    select(date_stamp, date_char, symbol, fwd_rtn, unlist(preds))
-  
-  return(df)
-}
+#preprocess <- function(df, preds) { #xsect_scale
+#  
+#  stopifnot("Required columns not present" = min(c("date_stamp", "date_char", "symbol", "fwd_rtn") %in% names(df)) == 1)
+#  stopifnot("One of selected predictor columns not present" = min(unlist(preds) %in% names(df)) == 1)
+#  
+#  df <- df %>% 
+#    group_by(date_stamp) %>% 
+#    mutate(across(.cols = unlist(preds), .fns = ~ as.vector(scale(.x)))) %>% 
+#    ungroup() %>% 
+#    select(date_stamp, date_char, symbol, fwd_rtn, unlist(preds))
+#  
+#  return(df)
+#}
 
-xsect_scale(df_train, json_args$predictors)
+df_train <- xsect_scale(df_train, json_args$predictors)
 
 # Loop sliding over time series ============================================================================================
 
@@ -143,7 +143,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
       update_role(date_char, new_role = 'date_char') %>% 
       update_role(symbol, new_role = 'symbol') %>% 
       update_role(unlist(json_args$predictors), new_role = 'predictor') %>% 
-      update_role(fwd_rtn, new_role = 'outcome')#%>% 
+      update_role(fwd_rtn, new_role = 'outcome') #%>% 
       #step_normalize(all_predictors()) 
       #step_corr(all_predictors(), threshold = .5)
   } 
@@ -157,7 +157,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     min_n = 50,
     trees = 250,
     tree_depth = tune()
-  ) %>% 
+    ) %>% 
     set_engine("xgboost", importance = TRUE) %>% 
     set_mode("regression")
   
@@ -260,7 +260,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     
     
     # 7.1 Assess stability of model ------------------------------------------------------------------------------------------
-    # Export - determine if the different hyperparameter specifications lead to different loss
+    # Export - determine if the different hyper-parameter specifications lead to different loss
     tune_metrics <- tune::collect_metrics(tune_resamples, summarize = FALSE)
     
     
@@ -279,28 +279,30 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     
   }	 else if (model_type == "lm") {
     
-    # Sliding window size for average betas
-    n <- length(unique(train$date_stamp))
+    final_fit <- lm(f, data = train)
     
-    final_fit <- train %>% 
-      nest_by(date_stamp) %>% 
-      mutate(model = list(lm(f, data = data))) %>% 
-      summarise(tidy(model)) %>% 
-      pivot_wider(names_from = term, values_from = c(estimate, std.error, statistic, p.value)) %>% 
-      ungroup() %>% 
-      rename_with(~ gsub(pattern = "[()]", replacement = "", x = .x)) %>% 
-      rename_with(~ tolower(.x)) %>% 
-      mutate(
-        across(starts_with("estimate"), 
-               ~ slide_dbl(.x = .x, .f = mean, .before = (n-1), .complete = TRUE),
-               .names = "{col}^{as.character(n)}MA")
-      )
+    # Sliding window size for average betas
+    #n <- length(unique(train$date_stamp))
+    #  
+    #final_fit <- train %>% 
+    #  nest_by(date_stamp) %>% 
+    #  mutate(model = list(lm(f, data = data))) %>% 
+    #  summarise(tidy(model)) %>% 
+    #  pivot_wider(names_from = term, values_from = c(estimate, std.error, statistic, p.value)) %>% 
+    #  ungroup() %>% 
+    #  rename_with(~ gsub(pattern = "[()]", replacement = "", x = .x)) %>% 
+    #  rename_with(~ tolower(.x)) %>% 
+    #  mutate(
+    #    across(starts_with("estimate"), 
+    #           ~ slide_dbl(.x = .x, .f = mean, .before = (n-1), .complete = TRUE),
+    #           .names = "{col}^{as.character(n)}MA")
+    #  )
     
     # Extract PIT coefficients TO DO: retain the monthly coefficients for future analysis
     
     # Extract averaged coefficients
-    coefs <- t(as.matrix(final_fit[final_fit$date_stamp == max(final_fit$date_stamp), grepl("\\^", names(final_fit))]))
-    coefs_df <- as.data.frame(t(coefs))
+    #coefs <- t(as.matrix(final_fit[final_fit$date_stamp == max(final_fit$date_stamp), grepl("\\^", names(final_fit))]))
+    #coefs_df <- as.data.frame(t(coefs))
   }
   
   # 11. Evaluate model / predict on the test set ----------------------------------------------------------------------------
@@ -343,19 +345,28 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     if (model_type == "mars") {
       p <- predict(object, newdata = newdata)
       p <- as.vector(p)
+    } else {
+      p <- predict(object, newdata = newdata)
     }
     return(p)
   }
   
   # Prepare test data
-  new_test_data <- bake(prep(recipe), new_data = test, all_predictors())
+  if (hyper_params) {
+    new_test_data <- bake(prep(recipe), new_data = test, all_predictors())
+  } else if (x_sect_scale) {
+    new_test_data <- xsect_scale(test, json_args$predictors)
+  } else {
+    new_test_data <- test
+  }
+  
   
   if (model_type == "xgb") {
     new_test_data <- xgb.DMatrix(data.matrix(new_test_data), missing = NA)
     preds_shap <- predict(fit_model, newdata = new_test_data, predcontrib = TRUE, approxcontrib = FALSE)
+  } else {
+    preds_shap <- fastshap::explain(fit_model, X = as.data.frame(new_test_data), pred_wrapper = pfun, nsim = 10)
   }
-  
-  preds_shap <- fastshap::explain(fit_model, X = as.data.frame(new_test_data), pred_wrapper = pfun, nsim = 10)
   
   preds_shap <- as.data.frame(preds_shap)
   
@@ -410,163 +421,3 @@ final_model <- final_workflow %>%
   fit(data = filter(df_train, between(date_stamp, as.Date(!!start), as.Date(!!end))))
 
 saveRDS(final_model, paste0(getwd(),"/03-model_01-oos-pred-model"))
-
-
-
-
-
-
-
-
-
-
-
-# ==========================================================================================================================
-# SCRATCH 
-# ==========================================================================================================================
-
-# Empty list for loop results
-coefs_list <- list()
-coefs_list1 <- list()
-preds_list <- list()
-
-# Formula
-f <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
-
-# Function to preprocess data
-preprocess <- function(df) {
-  df <- df %>% 
-    group_by(date_stamp) %>% 
-    mutate(
-      fwd_rtn     = as.vector(scale(fwd_rtn)),
-      rtn_ari_3m  = as.vector(scale(rtn_ari_3m)),
-      rtn_ari_12m = as.vector(scale(rtn_ari_12m))
-    ) %>% 
-    ungroup() %>% 
-    select(date_stamp, symbol, fwd_rtn, rtn_ari_3m, rtn_ari_12m)
-  
-  return(df)
-}
-
-
-# Back test loop
-for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.out = loops)) {
-  
-  start <- months[i]
-  end <- months[i + sample_months - 1]
-  df <- df_train %>% filter(between(date_stamp, as.Date(!!start), as.Date(!!end))) # inclusive
-  
-  
-  # 2. Specify training and testing split ----------------------------------------------------------------------------------
-  
-  test_start_date <- as.Date(mondate::mondate(max(df$date_stamp)) - test_months + fwd_rtn_months)
-  print(paste0("Sliding window : ", start," to ", end, " (test : ", test_start_date, " to ", end,")"))
-  
-  # Sort so that index for test split is appropriate
-  df <- arrange(df, date_stamp, symbol)
-  
-  # Index ref for first date
-  analysis <- as.integer(rownames(df[df$date_stamp <  test_start_date, ]))
-  indices <- list(
-    analysis   = analysis, 
-    assessment = (max(analysis)+1):nrow(df)
-  )
-  
-  # Determine proportion of records to select
-  split <- make_splits(indices, df)
-  
-  # Training and test data
-  train <- training(split)
-  test <- testing(split)
-  
-
-  
-  # 4. Pre-processing ------------------------------------------------------------------------------------------------------
-  
-  train <- preprocess(train)
-  
-  # Cross sectional scaling so no parameters inherited from test pre-processing
-  test <- preprocess(test)
-  
-  
-  
-  # 10. Fit model to training data ------------------------------------------------------------------------------------------
-  
-  # Sliding window size for average betas
-  n <- length(unique(train$date_stamp))
-  
-  mdl_fit <- train %>% 
-    nest_by(date_stamp) %>% 
-    mutate(model = list(lm(fwd_rtn ~ rtn_ari_3m + rtn_ari_12m, data = data))) %>% 
-    summarise(tidy(model)) %>% 
-    pivot_wider(names_from = term, values_from = c(estimate, std.error, statistic, p.value)) %>% 
-    ungroup() %>% 
-    rename_with(~ gsub(pattern = "[()]", replacement = "", x = .x)) %>% 
-    rename_with(~ tolower(.x)) %>% 
-    mutate(
-      across(starts_with("estimate"), 
-             ~ slide_dbl(.x = .x, .f = mean, .before = (n-1), .complete = TRUE),
-             .names = "{col}^{as.character(n)}MA")
-    )
-  # TO DO: retain the monthly coefficients for future analysis
-  
-  # Extract averaged coefficients
-  coefs <- t(as.matrix(mdl_fit[mdl_fit$date_stamp == max(mdl_fit$date_stamp), grepl("\\^", names(mdl_fit))]))
-  coefs_df <- as.data.frame(t(coefs))
-  
-  
-  
-  # # 10.1 Evaluate the test set -------------------------------------------------------------------------------------------
-  
-  model_mat <- as.matrix(cbind(intercept = rep(1,nrow(test)), test[, c('rtn_ari_3m', 'rtn_ari_12m')]))
-  preds <- as.vector(model_mat %*% coefs)
-  
-  # Join labels to predictions
-  preds <- bind_cols(preds, select(test, symbol, date_stamp))
-  colnames(preds)[1] <- "preds"
-  
-  
-  
-  # 10. Collect predictions ------------------------------------------------------------------------------------------------
-
-  # Label start & end date
-  preds$start <- start
-  preds$end <- end
-  # Label start & end date
-  coefs_df$start <- start
-  coefs_df$end <- end
-  
-  # Add data frame to list
-  preds_list[[i]] <- preds
-  coefs_list[[i]] <- coefs_df
-  coefs_list1[[i]]<- mdl_fit[, c('date_stamp','estimate_intercept','estimate_rtn_ari_3m','estimate_rtn_ari_12m')]
-  
-}
-
-# End loop =================================================================================================================
-
-# Data frames in list to single data frame
-preds_all <- dplyr::bind_rows(preds_list)
-coefs_all <- dplyr::bind_rows(coefs_list)
-coefs_all1 <- dplyr::bind_rows(coefs_list1)
-coefs_all1 <- unique.data.frame(coefs_all1)
-
-
-# 13. Save final model object ----------------------------------------------------------------------------------------------
-
-# Fit to data comprising both the training and test set
-# data prep
-final_fit_data <- bind_rows(train, test)
-train_dates <- unique(train$date_stamp)
-excl_dates <- train_dates[1:(test_months / fwd_rtn_months)]
-final_fit_data <- final_fit_data %>% filter(!date_stamp %in% excl_dates)
-final_fit_data <- preprocess(final_fit_data)
-
-# train model
-final_model <- lm(fwd_rtn ~ rtn_ari_3m + rtn_ari_12m, data = final_fit_data)
-saveRDS(final_model, paste0(getwd(),"/03-model_01-oos-pred-model"))
-
-
-#xxx <- preprocess(df_train)
-#group_by(xxx, date_stamp) %>% summarise(x = mean(fwd_rtn))
-#sum(c("date_stamp","fwd_rtn","rtn_ari_3m","rtn_ari_12m") %in% colnames(test))
