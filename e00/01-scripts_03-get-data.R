@@ -92,7 +92,6 @@ df <- qry_rslt %>%
   ) %>% 
   ungroup() %>% 
   # Date to character - required for stratified sampling, "vfold_cv" does not accept date 
-  # TO DO - will this work after writing to csv? Do this in 03-train_model?
   mutate(date_char = as.character(date_stamp)) %>%  
   select(
     date_stamp, date_char, symbol, fwd_rtn,

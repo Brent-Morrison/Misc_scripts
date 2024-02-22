@@ -62,22 +62,6 @@ pred_shap_list <- list()
 # Formula for lm function call
 f <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
 
-# Function to preprocess data
-#preprocess <- function(df, preds) { #xsect_scale
-#  
-#  stopifnot("Required columns not present" = min(c("date_stamp", "date_char", "symbol", "fwd_rtn") %in% names(df)) == 1)
-#  stopifnot("One of selected predictor columns not present" = min(unlist(preds) %in% names(df)) == 1)
-#  
-#  df <- df %>% 
-#    group_by(date_stamp) %>% 
-#    mutate(across(.cols = unlist(preds), .fns = ~ as.vector(scale(.x)))) %>% 
-#    ungroup() %>% 
-#    select(date_stamp, date_char, symbol, fwd_rtn, unlist(preds))
-#  
-#  return(df)
-#}
-
-df_train <- xsect_scale(df_train, json_args$predictors)
 
 # Loop sliding over time series ============================================================================================
 
@@ -124,8 +108,8 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   # https://stats.stackexchange.com/questions/258307/raw-or-orthogonal-polynomial-regression
   
   if (x_sect_scale) {
-    train <- preprocess(train)
-    test  <- preprocess(test)
+    train <- xsect_scale(train, json_args$predictors)
+    test  <- xsect_scale(test, json_args$predictors)
   } 
   
   if (train_on_qntls) {
@@ -316,8 +300,9 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     
   } else if (model_type == "lm") {
     
-    model_mat <- as.matrix(cbind(intercept = rep(1,nrow(test)), test[, paste(json_args$predictors)]))
-    preds <- as.vector(model_mat %*% coefs)
+    #model_mat <- as.matrix(cbind(intercept = rep(1,nrow(test)), test[, paste(json_args$predictors)]))
+    #preds <- as.vector(model_mat %*% coefs)
+	preds <- predict(final_fit, test[, paste(json_args$predictors)])
     
     # Join labels to predictions
     preds <- bind_cols(.pred = preds, select(test, symbol, date_stamp, fwd_rtn), select(test, fwd_rtn) %>% rename(fwd_rtn_raw = fwd_rtn))
@@ -372,20 +357,27 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   
   
   # Label start & end date
-  preds$start        <- start
-  preds$end          <- end
-  var_imp$start      <- start
-  var_imp$end        <- end
-  preds_shap$start   <- start
-  preds_shap$end     <- end
-  tune_metrics$start <- start
-  tune_metrics$end   <- end
+  if (hyper_params) {
+    tune_metrics$start <- start
+	tune_metrics$end   <- end
+  } else {
+    preds$start        <- start
+	preds$end          <- end
+	var_imp$start      <- start
+	var_imp$end        <- end
+	preds_shap$start   <- start
+	preds_shap$end     <- end
+  }
+  
   
   # Add data frame to list
-  preds_list[[i]]        <- preds
-  var_imp_list[[i]]      <- var_imp
-  pred_shap_list[[i]]    <- preds_shap
-  tune_metrics_list[[i]] <- tune_metrics
+  if (hyper_params) {
+    tune_metrics_list[[i]] <- tune_metrics
+  } else {
+    preds_list[[i]]        <- preds
+	var_imp_list[[i]]      <- var_imp
+	pred_shap_list[[i]]    <- preds_shap
+  }
   
 }
 
@@ -393,10 +385,13 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
 
 
 # Data frames in list to single data frame
-preds_all        <- dplyr::bind_rows(preds_list)
-var_imp_all      <- dplyr::bind_rows(var_imp_list)
-preds_shap_all   <- dplyr::bind_rows(pred_shap_list)
-tune_metrics_all <- dplyr::bind_rows(tune_metrics_list)
+if (hyper_params) {
+  tune_metrics_all <- dplyr::bind_rows(tune_metrics_list)
+} else {
+  preds_all        <- dplyr::bind_rows(preds_list)
+  var_imp_all      <- dplyr::bind_rows(var_imp_list)
+  preds_shap_all   <- dplyr::bind_rows(pred_shap_list)
+}
 
 
 # Remove dupes
@@ -406,10 +401,14 @@ preds_all %>% group_by(symbol, date_stamp) %>% summarise(n = n()) %>% filter(n >
 
 # Write to csv
 # ^^^ same number of records
-write_csv(preds_all,        paste0(getwd(),"/02-data_04-vldtn-preds.csv")) # ^^^ 
-write_csv(preds_shap_all,   paste0(getwd(),"/02-data_05-shap-values.csv")) # ^^^
-write_csv(tune_metrics_all, paste0(getwd(),"/02-data_06-hyper-parms.csv"))
-write_csv(var_imp_all,      paste0(getwd(),"/02-data_07-var-imp.csv"))
+if (hyper_params) {
+  write_csv(tune_metrics_all, paste0(getwd(),"/02-data_06-hyper-parms.csv"))
+} else {
+  write_csv(preds_all,        paste0(getwd(),"/02-data_04-vldtn-preds.csv")) # ^^^ 
+  write_csv(preds_shap_all,   paste0(getwd(),"/02-data_05-shap-values.csv")) # ^^^
+  write_csv(var_imp_all,      paste0(getwd(),"/02-data_07-var-imp.csv"))
+}
+
 
 
 # 13. Save final model object ----------------------------------------------------------------------------------------------
@@ -417,7 +416,12 @@ write_csv(var_imp_all,      paste0(getwd(),"/02-data_07-var-imp.csv"))
 # Final model
 set.seed(456)
 # Fit on most recent dataset (same training period as above)
-final_model <- final_workflow %>% 
-  fit(data = filter(df_train, between(date_stamp, as.Date(!!start), as.Date(!!end))))
+if (hyper_params) {
+  final_model <- final_workflow %>% 
+	fit(data = filter(df_train, between(date_stamp, as.Date(!!start), as.Date(!!end))))
+} else {
+  final_model <- lm(f, data = filter(df_train, between(date_stamp, as.Date(!!start), as.Date(!!end))))
+}
+
 
 saveRDS(final_model, paste0(getwd(),"/03-model_01-oos-pred-model"))

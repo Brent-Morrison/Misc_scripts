@@ -4,35 +4,25 @@ library(dplyr)
 library(tidyr)
 library(readr)
 library(jsonlite)
-#library(box)
+library(romerb)
 
-box::use(./`01-scripts_04-train-model`[preprocess = preprocess])
 
 # External parameters
 json_args <- jsonlite::read_json(paste0(getwd(),"/01-scripts_02-args.json"))
 
-# Load preprocess function from training script
-# https://stackoverflow.com/questions/68537583/how-can-i-source-specific-functions-in-an-r-script
-preprocess <- function() {}
-insertSource(paste0(getwd(),"/01-scripts_04-train-model.R"), functions="preprocess", force=T) 
-preprocess <- preprocess@.Data
+model_type     <- json_args$model_type
+x_sect_scale   <- as.logical(json_args$x_sect_scale)
+hyper_params   <- as.logical(json_args$hyper_params)
 
-# Needs to be the same as the function in training file
-preprocess <- function(df) {
-  df <- df %>% 
-    group_by(date_stamp) %>% 
-    mutate(across(.cols = unlist(json_args$predictors), .fns = ~ as.vector(scale(.x)))) %>% 
-    ungroup() %>% 
-    select(date_stamp, symbol, unlist(json_args$predictors))
-  
-  return(df)
-}
 
 # Data
 df <- read_csv(paste0(getwd(),"/02-data_02-scoring.csv"))
 print(head(df))
 
-df <- preprocess(df)
+if (x_sect_scale) {
+  df <- xsect_scale(df, json_args$predictors)
+  }
+
 print(head(df))
 
 # Load model and predict new data 
