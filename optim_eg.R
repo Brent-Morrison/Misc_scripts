@@ -132,3 +132,55 @@ optim(
   q = q
   
 )
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Depreciation
+# --------------------------------------------------------------------------------------------------------------------------
+
+capex <- read_xlsx(path, range = "Capex_FO input!Q44:z48", col_names = FALSE)
+c <- as.matrix(capex)
+c1 <- c[1,]
+c4 <- c[4,]
+c5 <- c[5,]
+yr_op1 <- 7
+yr_op4 <- 5
+yr_op5 <- 99
+l1 <- 50
+l4 <- 50
+l5 <- 15
+
+cpx_depn <- function(capex, yr_op, life) {
+  
+  ac <- rep(0,length(capex))
+  ind <- 1:length(capex)
+  
+  if (yr_op == 99) {
+    ac <- capex
+  } else {
+    ac[ind <  yr_op] <- 0
+    ac[ind == yr_op] <- sum(capex[ind <= yr_op])
+    ac[ind >  yr_op] <- capex[ind >  yr_op]
+  
+  }
+  
+  cpx.m <- diag(as.vector(ac)) + diag(rep(1e-9, length(ac)))
+  yr1.dpn <- cpx.m / life * 0.5
+  yr2p.dpn <- cpx.m
+  for (i in 1:ncol(cpx.m)) {
+    yr2p.dpn[i,][yr2p.dpn[i,] == 0] <- rep(diag(yr2p.dpn)[i] / life, ncol(cpx.m) - 1)
+    #yr2p.dpn[i,][yr2p.dpn[i,] == 0] <- yr2p.dpn[i,][yr2p.dpn[i,] != 0] / life
+  }
+  yr2p.dpn[lower.tri(yr2p.dpn, diag = TRUE)] <- 0
+  dpn <- yr1.dpn + yr2p.dpn
+  dpn <- colSums(dpn)
+  
+  return(round(dpn, 4))
+}
+
+cpx_depn(c1, yr_op1, l1)
+cpx_depn(c4, yr_op4, l4)
+cpx_depn(c5, yr_op5, l5)
+
+t(mapply(FUN = cpx_depn, split(c, row(c)), yr_op = c(7,4,4,5,99), life = c(50,80,50,50,15)))
+
