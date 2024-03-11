@@ -6,7 +6,8 @@ library(tidymodels)
 library(slider)
 library(readr)
 #library(xgboost)
-library(earth)
+#library(earth)
+#library(glmnet)
 library(fastshap)
 library(jsonlite)
 library(romerb)
@@ -167,7 +168,8 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     set_engine("randomForest", importance = TRUE) %>% 
     set_mode("regression")
 	
-  lm_model <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
+  lm_model  <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
+  glm_model <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
 
   if (model_type == "xgb") {
     model <- xgb_model
@@ -261,32 +263,14 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     set.seed(456)
     final_fit <- tune::last_fit(final_workflow, split) 
     
-  }	 else if (model_type == "lm") {
+  }	else if (model_type == "lm") {
     
     final_fit <- lm(f, data = train)
     
-    # Sliding window size for average betas
-    #n <- length(unique(train$date_stamp))
-    #  
-    #final_fit <- train %>% 
-    #  nest_by(date_stamp) %>% 
-    #  mutate(model = list(lm(f, data = data))) %>% 
-    #  summarise(tidy(model)) %>% 
-    #  pivot_wider(names_from = term, values_from = c(estimate, std.error, statistic, p.value)) %>% 
-    #  ungroup() %>% 
-    #  rename_with(~ gsub(pattern = "[()]", replacement = "", x = .x)) %>% 
-    #  rename_with(~ tolower(.x)) %>% 
-    #  mutate(
-    #    across(starts_with("estimate"), 
-    #           ~ slide_dbl(.x = .x, .f = mean, .before = (n-1), .complete = TRUE),
-    #           .names = "{col}^{as.character(n)}MA")
-    #  )
+  } else if (model_type == "glm") {
     
-    # Extract PIT coefficients TO DO: retain the monthly coefficients for future analysis
+    final_fit <- cv.glmnet(f, data = train)
     
-    # Extract averaged coefficients
-    #coefs <- t(as.matrix(final_fit[final_fit$date_stamp == max(final_fit$date_stamp), grepl("\\^", names(final_fit))]))
-    #coefs_df <- as.data.frame(t(coefs))
   }
   
   # 11. Evaluate model / predict on the test set ----------------------------------------------------------------------------

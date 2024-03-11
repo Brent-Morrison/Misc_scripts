@@ -1,5 +1,8 @@
 # https://www.johnmackintosh.net/blog/2021-11-01-scheduling/
 
+# Conditional chunck execution
+# https://www.nagraj.net/notes/conditional-r-markdown/
+
 library(rmarkdown)
 library(jsonlite)
 
@@ -15,3 +18,4 @@ rmarkdown::render(
   output_file = paste0(getwd(),"/04-report_01-report.html"),
   params      = list(folder = folder)
 )
+
