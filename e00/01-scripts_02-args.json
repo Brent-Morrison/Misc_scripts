@@ -10,5 +10,5 @@
 	,"train_on_qntls"	:	"FALSE"
 	,"cross_val_v"		: 	3
 	,"error_metric"		:	"mae"
-	,"predictors"		:	["rtn_ari_3m", "rtn_ari_12m", "perc_range_12m"]
+	,"predictors"		:	["rtn_ari_1m","rtn_ari_3m","rtn_ari_12m","perc_range_12m","perc_pos_12m","rtn_from_high_12m","vol_ari_60d"]
 }

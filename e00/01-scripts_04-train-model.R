@@ -269,7 +269,35 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     
   } else if (model_type == "glm") {
     
-    final_fit <- cv.glmnet(f, data = train)
+    alpha <- seq(0, 1, len=11)^3
+    nfolds <- 10
+    foldid <- sample(rep(seq_len(nfolds), length=nrow(training_data_raw)))
+    glm_models <- lapply(
+      alpha, 
+      cv.glmnet, 
+      x = as.matrix(training_data_raw[, unlist(predictors)]), 
+      y = as.matrix(training_data_raw[, "fwd_rtn"]), 
+      nfolds = nfolds, 
+      foldid = foldid,
+      family = "gaussian",
+      weights = NULL,
+      offset = NULL,
+      lambda = NULL,
+      type.measure = "mse",
+      alignment = "lambda",
+      grouped = TRUE,
+      keep = FALSE,
+      parallel = FALSE,
+      gamma = c(0, 0.25, 0.5, 0.75, 1),
+      relax = FALSE,
+      trace.it = 0
+    )
+    
+    # Find the model with the lowest error
+    cvms <- sapply(glm_models, "[[", "cvm")
+    min_model <- which.min(sapply(cvms, min))
+    final_fit <- glm_models[[min_model]]
+    #predict(final_fit, newx = as.matrix(training_data_raw[1:10, unlist(predictors)]), s = "lambda.min")
     
   }
   
