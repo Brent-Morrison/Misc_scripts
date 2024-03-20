@@ -7,7 +7,7 @@ library(slider)
 library(readr)
 #library(xgboost)
 #library(earth)
-#library(glmnet)
+library(glmnet)
 library(fastshap)
 library(jsonlite)
 library(romerb)
@@ -23,6 +23,7 @@ train_months   <- json_args$train_months
 test_months    <- json_args$test_months                                                   # out of sample test_months / stride
 model_type     <- json_args$model_type
 cross_val_v    <- json_args$cross_val_v
+predictors     <- json_args$predictors
 x_sect_scale   <- as.logical(json_args$x_sect_scale)
 hyper_params   <- as.logical(json_args$hyper_params)
 train_on_qntls <- as.logical(json_args$train_on_qntls)
@@ -61,7 +62,7 @@ pred_shap_list <- list()
 #model_no_hyper <- c("lm")
 
 # Formula for lm function call
-f <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
+f <- as.formula(paste("fwd_rtn", paste(predictors, collapse=" + "), sep=" ~ "))
 
 
 # Loop sliding over time series ============================================================================================
@@ -109,8 +110,8 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   # https://stats.stackexchange.com/questions/258307/raw-or-orthogonal-polynomial-regression
   
   if (x_sect_scale) {
-    train <- xsect_scale(train, json_args$predictors)
-    test  <- xsect_scale(test, json_args$predictors)
+    train <- xsect_scale(train, predictors)
+    test  <- xsect_scale(test, predictors)
   } 
   
   if (train_on_qntls) {
@@ -127,7 +128,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
       update_role(date_stamp, new_role = 'date_stamp') %>% 
       update_role(date_char, new_role = 'date_char') %>% 
       update_role(symbol, new_role = 'symbol') %>% 
-      update_role(unlist(json_args$predictors), new_role = 'predictor') %>% 
+      update_role(unlist(predictors), new_role = 'predictor') %>% 
       update_role(fwd_rtn, new_role = 'outcome') #%>% 
       #step_normalize(all_predictors()) 
       #step_corr(all_predictors(), threshold = .5)
@@ -168,8 +169,8 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     set_engine("randomForest", importance = TRUE) %>% 
     set_mode("regression")
 	
-  lm_model  <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
-  glm_model <- as.formula(paste("fwd_rtn", paste(json_args$predictors, collapse=" + "), sep=" ~ "))
+  lm_model  <- as.formula(paste("fwd_rtn", paste(predictors, collapse=" + "), sep=" ~ "))
+  glm_model <- as.formula(paste("fwd_rtn", paste(predictors, collapse=" + "), sep=" ~ "))
 
   if (model_type == "xgb") {
     model <- xgb_model
@@ -271,12 +272,12 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     
     alpha <- seq(0, 1, len=11)^3
     nfolds <- 10
-    foldid <- sample(rep(seq_len(nfolds), length=nrow(training_data_raw)))
+    foldid <- sample(rep(seq_len(nfolds), length=nrow(train)))
     glm_models <- lapply(
       alpha, 
       cv.glmnet, 
-      x = as.matrix(training_data_raw[, unlist(predictors)]), 
-      y = as.matrix(training_data_raw[, "fwd_rtn"]), 
+      x = as.matrix(train[, unlist(predictors)]), 
+      y = as.matrix(train[, "fwd_rtn"]), 
       nfolds = nfolds, 
       foldid = foldid,
       family = "gaussian",
@@ -297,29 +298,30 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     cvms <- sapply(glm_models, "[[", "cvm")
     min_model <- which.min(sapply(cvms, min))
     final_fit <- glm_models[[min_model]]
-    #predict(final_fit, newx = as.matrix(training_data_raw[1:10, unlist(predictors)]), s = "lambda.min")
     
   }
   
   # 11. Evaluate model / predict on the test set ----------------------------------------------------------------------------
   
   if (hyper_params) {
-    
     preds <- tune::collect_predictions(final_fit)
 	
-	# Join labels to predictions
-  preds <- bind_cols(preds, select(test, symbol, date_stamp))
+	  # Join labels to predictions
+    preds <- bind_cols(preds, select(test, symbol, date_stamp))
     
   } else if (model_type == "lm") {
     
-    #model_mat <- as.matrix(cbind(intercept = rep(1,nrow(test)), test[, paste(json_args$predictors)]))
-    #preds <- as.vector(model_mat %*% coefs)
-	preds <- predict(final_fit, test[, paste(json_args$predictors)])
+	  preds <- predict(final_fit, test[, paste(predictors)])
     
-    # Join labels to predictions
-    preds <- bind_cols(.pred = preds, select(test, symbol, date_stamp, fwd_rtn), select(test, fwd_rtn) %>% rename(fwd_rtn_raw = fwd_rtn))
+  } else if (model_type == "glm") {
+    
+    preds <- predict(final_fit, newx = as.matrix(test[ , unlist(predictors)]), s = "lambda.min")
     
   }
+  
+  # Join labels to predictions
+  preds <- bind_cols(.pred = preds, select(test, symbol, date_stamp, fwd_rtn), select(test, fwd_rtn) %>% rename(fwd_rtn_raw = fwd_rtn))
+  
   
   
   # 12. Extract model specific variable importance -------------------------------------------------------------------------
@@ -339,11 +341,12 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   
   # Prediction wrapper, this function must return a numeric vector of predicted outcomes ### NOT A MATRIX ####
   pfun <- function(object, newdata) {
-    if (model_type == "mars") {
-      p <- predict(object, newdata = newdata)
+    if (model_type == "glm") {
+      p <- predict(object, newx = as.matrix(newdata), s = "lambda.min")
       p <- as.vector(p)
     } else {
       p <- predict(object, newdata = newdata)
+      p <- as.vector(p)
     }
     return(p)
   }
@@ -352,15 +355,17 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   if (hyper_params) {
     new_test_data <- bake(prep(recipe), new_data = test, all_predictors())
   } else if (x_sect_scale) {
-    new_test_data <- xsect_scale(test, json_args$predictors)
+    new_test_data <- xsect_scale(test, predictors)
   } else {
     new_test_data <- test
   }
   
-  
+  # Shapley values
   if (model_type == "xgb") {
     new_test_data <- xgb.DMatrix(data.matrix(new_test_data), missing = NA)
     preds_shap <- predict(fit_model, newdata = new_test_data, predcontrib = TRUE, approxcontrib = FALSE)
+  } else if (model_type == "glm") {
+    preds_shap <- fastshap::explain(fit_model, X = as.matrix(new_test_data[ , unlist(predictors)]), pred_wrapper = pfun, nsim = 10)
   } else {
     preds_shap <- fastshap::explain(fit_model, X = as.data.frame(new_test_data), pred_wrapper = pfun, nsim = 10)
   }
@@ -370,25 +375,33 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   
   # Label start & end date
   if (hyper_params) {
+    
     tune_metrics$start <- start
-	tune_metrics$end   <- end
+	  tune_metrics$end   <- end
+	  
   } else {
+    
     preds$start        <- start
-	preds$end          <- end
-	var_imp$start      <- start
-	var_imp$end        <- end
-	preds_shap$start   <- start
-	preds_shap$end     <- end
+  	preds$end          <- end
+  	var_imp$start      <- start
+  	var_imp$end        <- end
+  	preds_shap$start   <- start
+  	preds_shap$end     <- end
+  	
   }
   
   
   # Add data frame to list
   if (hyper_params) {
+    
     tune_metrics_list[[i]] <- tune_metrics
+    
   } else {
+    
     preds_list[[i]]        <- preds
-	var_imp_list[[i]]      <- var_imp
-	pred_shap_list[[i]]    <- preds_shap
+  	var_imp_list[[i]]      <- var_imp
+  	pred_shap_list[[i]]    <- preds_shap
+  	
   }
   
 }
