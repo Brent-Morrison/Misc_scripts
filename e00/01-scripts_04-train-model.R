@@ -5,8 +5,6 @@ library(DescTools)
 library(tidymodels)
 library(slider)
 library(readr)
-#library(xgboost)
-#library(earth)
 library(glmnet)
 library(fastshap)
 library(jsonlite)
@@ -25,10 +23,11 @@ model_type     <- json_args$model_type
 cross_val_v    <- json_args$cross_val_v
 predictors     <- json_args$predictors
 x_sect_scale   <- as.logical(json_args$x_sect_scale)
+ts_normalise   <- as.logical(json_args$ts_normalise)
 hyper_params   <- as.logical(json_args$hyper_params)
 train_on_qntls <- as.logical(json_args$train_on_qntls)
 
-print("BACKTEST PARAMETERS ====")
+print("BACKTEST PARAMETERS ---------")
 print(paste0("Train months        : ", train_months))
 print(paste0("Test months         : ", test_months))
 print(paste0("Fcast months        : ", fwd_rtn_months))
@@ -36,6 +35,20 @@ print(paste0("Model type          : ", model_type))
 print(paste0("X-sect scaling      : ", x_sect_scale))
 print(paste0("Hyper params        : ", hyper_params))
 print(paste0("Train on quintiles  : ", train_on_qntls))
+
+
+# Load appropriate library
+if (model_type == "xgb") {
+  library(xgboost)
+} else if (model_type == "mars") {
+  library(earth)
+} else if (model_type == "rf") {
+  library(randomForest)
+} else if (model_type == "nnet") {
+  library(nnet)
+} else if (model_type == "glm") {
+  library(glmnet)
+}
 
 # Read data
 df_train <- read_csv(paste0(getwd(),"/02-data_01-training.csv")) %>% 
@@ -58,8 +71,10 @@ var_imp_list <- list()
 tune_metrics_list <- list()
 pred_shap_list <- list()
 
+
 # Models with no hyper-parameters, for use in conditional logic re variable importance and parameter grids
 #model_no_hyper <- c("lm")
+
 
 # Formula for lm function call
 f <- as.formula(paste("fwd_rtn", paste(predictors, collapse=" + "), sep=" ~ "))
@@ -77,7 +92,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   # 2. Specify training and testing split ----------------------------------------------------------------------------------
   
   test_start_date <- as.Date(mondate::mondate(max(df$date_stamp)) - test_months + fwd_rtn_months)
-  print(paste0("Sliding window : ", start," to ", end, " (test : ", test_start_date, " to ", end,")"))
+  #print(paste0("Sliding window : ", start," to ", end, " (test : ", test_start_date, " to ", end,")"))
   
   # Sort so that index for test split is appropriate
   df <- arrange(df, date_stamp, symbol)
@@ -134,54 +149,62 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
       #step_corr(all_predictors(), threshold = .5)
   } 
 
+  if (ts_normalise) {
+    recipe <- recipe %>% 
+      step_normalize(all_predictors()) 
+      #step_corr(all_predictors(), threshold = .5)
+  } 
   
   
   # 5. Specify models(s) ---------------------------------------------------------------------------------------------------
-  
-  xgb_model <- boost_tree(
-    mtry = tune(),
-    min_n = 50,
-    trees = 250,
-    tree_depth = tune()
-    ) %>% 
-    set_engine("xgboost", importance = TRUE) %>% 
-    set_mode("regression")
-  
-  mars_model <- mars(
-    num_terms = tune(),            # nprune - maximum number of terms (including intercept) in the pruned model
-    prod_degree = tune(),          # degree -the highest possible degree of interaction between features
-    prune_method = "exhaustive"    # pmethod
-    ) %>% 
-    set_engine("earth") %>%
-    set_mode("regression")
-  
-  nn_model <- mlp(                # https://community.rstudio.com/t/extending-parsnip/99290
-    hidden_units = tune()
-    ) %>% 
-    set_engine("nnet") %>% 
-    set_mode("regression")
-  
-  rf_model <- rand_forest(
-    mtry = tune(),                # An integer for the number of predictors that will be randomly sampled at each split when creating the tree models
-    min_n = 100,                  # An integer for the minimum number of data points in a node
-    trees = 250                   # An integer for the number of trees contained in the ensemble
-    ) %>% 
-    set_engine("randomForest", importance = TRUE) %>% 
-    set_mode("regression")
-	
+
   lm_model  <- as.formula(paste("fwd_rtn", paste(predictors, collapse=" + "), sep=" ~ "))
   glm_model <- as.formula(paste("fwd_rtn", paste(predictors, collapse=" + "), sep=" ~ "))
 
   if (model_type == "xgb") {
-    model <- xgb_model
+    
+    model <- boost_tree(
+      mtry = tune(),
+      min_n = 50,
+      trees = 250,
+      tree_depth = tune()
+      ) %>% 
+      set_engine("xgboost", importance = TRUE) %>% 
+      set_mode("regression")
+    
   } else if (model_type == "mars") {
-    model <- mars_model
+    
+    model <- mars(
+      num_terms = tune(),            # nprune - maximum number of terms (including intercept) in the pruned model
+      prod_degree = tune(),          # degree -the highest possible degree of interaction between features
+      prune_method = "exhaustive"    # pmethod
+      ) %>% 
+      set_engine("earth") %>%
+      set_mode("regression")
+    
   } else if (model_type == "rf") {
-    model <- rf_model
-  } else if (model_type == "lm") {
-    model <- lm_model
+    
+    model <- rand_forest(
+      mtry = tune(),                # An integer for the number of predictors that will be randomly sampled at each split when creating the tree models
+      min_n = 100,                  # An integer for the minimum number of data points in a node
+      trees = 250                   # An integer for the number of trees contained in the ensemble
+      ) %>% 
+      set_engine("randomForest", importance = TRUE) %>% 
+      set_mode("regression")
+    
+  } else if (model_type == "nnet") {
+    
+    model <- mlp(                # https://community.rstudio.com/t/extending-parsnip/99290
+      hidden_units = tune(),
+      penalty = tune()
+      ) %>% 
+      set_engine("nnet") %>% 
+      set_mode("regression")
+    
   } else {
-    model <- nn_model
+    
+    model <- as.formula(paste("fwd_rtn", paste(predictors, collapse=" + "), sep=" ~ "))
+    
   } 
   
   
@@ -191,39 +214,40 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   # Steps 6 though 10 for models with hyper-parameters only
   
   if (hyper_params) {
-    
-    xgb_grid <- grid_regular(
-      mtry(range = c(5, 9)), 
-      #min_n(range = c(6, 8)),
-      tree_depth(range = c(3, 7)),
-      levels = 2
-      )
-    
-    mars_grid <- grid_regular(       # http://www.milbo.org/doc/earth-notes.pdf
-      num_terms(range = c(5, 8)),    # nprune - maximum number of terms (including intercept) in the pruned model
-      prod_degree(range = c(1, 2)),  # degree - the highest possible degree of interaction between features
-      levels = 5
-      )
-    
-    nn_grid <- grid_regular(
-      hidden_units(range = c(3, 5))
-      )
-    
-    rf_grid <- grid_regular(
-      mtry(range = c(5, 10)), 
-      #min_n(range = c(6, 8)),
-      #trees(range = c(1000, 1500))
-      levels = 2
-      )
    
     if (model_type == "xgb") {
-      grid <- xgb_grid
+      
+      grid <- grid_regular(
+        mtry(range = c(floor(length(predictors) / 2), length(predictors))), 
+        #min_n(range = c(6, 8)),
+        tree_depth(range = c(3, 7)),
+        levels = 2
+        )
+      
     } else if (model_type == "mars") {
-      grid <- mars_grid
+      
+      grid <- grid_regular(            # http://www.milbo.org/doc/earth-notes.pdf
+        num_terms(range = c(5, 8)),    # nprune - maximum number of terms (including intercept) in the pruned model
+        prod_degree(range = c(1, 2)),  # degree - the highest possible degree of interaction between features
+        levels = 5
+        )
+      
     } else if (model_type == "rf") {
-      grid <- rf_grid
-    } else {
-      grid <- nn_grid
+      
+      grid <- grid_regular(
+        mtry(range = c(floor(length(predictors) / 2), length(predictors))),  # cannot exceed maximum number of columns
+        #min_n(range = c(6, 8)),
+        #trees(range = c(1000, 1500))
+        levels = 2
+        )
+      
+    } else if (model_type == "nnet") {
+      
+      grid <- grid_regular(
+        hidden_units(range = c(3, 5)),
+        penalty()
+        )
+      
     } 
     
     
@@ -253,7 +277,9 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     
     # 8. Select best parameters ----------------------------------------------------------------------------------------------
     best_param <- tune::select_best(tune_resamples, metric = "mae")
-    
+    cat("\nBest parameters ---------------")
+    print(best_param)
+    cat("\n")
     
     # 9. Finalise workflow ---------------------------------------------------------------------------------------------------
     final_workflow <- tune::finalize_workflow(workflow, best_param)
@@ -262,7 +288,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     # 10. Final fit (fit best model to the training set) ---------------------------------------------------------------------
     
     set.seed(456)
-    final_fit <- tune::last_fit(final_workflow, split) 
+    final_fit <- tune::last_fit(final_workflow, split) # While fit_best() gives a fitted workflow, last_fit() gives you the performance results. If you want the fitted workflow, you can extract it from the result of last_fit() via extract_workflow()
     
   }	else if (model_type == "lm") {
     
@@ -304,27 +330,26 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   # 11. Evaluate model / predict on the test set ----------------------------------------------------------------------------
   
   if (hyper_params) {
-    preds <- tune::collect_predictions(final_fit)
-	
-	  # Join labels to predictions
-    preds <- bind_cols(preds, select(test, symbol, date_stamp))
-    
+    preds <- tune::collect_predictions(final_fit, summarize = FALSE)      # https://tune.tidymodels.org/reference/collect_predictions.html
+    print(str(preds))
+    preds <- bind_cols(preds, select(test, symbol, date_stamp, fwd_rtn))  # join labels to predictions
   } else if (model_type == "lm") {
-    
 	  preds <- predict(final_fit, test[, paste(predictors)])
-    
+	  preds <- bind_cols(preds, select(test, symbol, date_stamp, fwd_rtn))  # join labels to predictions
+	  colnames(preds)[1] = ".pred"
+	  print(str(preds))
   } else if (model_type == "glm") {
-    
     preds <- predict(final_fit, newx = as.matrix(test[ , unlist(predictors)]), s = "lambda.min")
-    
+    preds <- bind_cols(preds, select(test, symbol, date_stamp, fwd_rtn))  # join labels to predictions
   }
   
   # Join labels to predictions
-  preds <- bind_cols(.pred = preds, select(test, symbol, date_stamp, fwd_rtn), select(test, fwd_rtn) %>% rename(fwd_rtn_raw = fwd_rtn))
-  
+  #preds <- bind_cols(.pred = preds, select(test, symbol, date_stamp, fwd_rtn), select(test, fwd_rtn) %>% rename(fwd_rtn_raw = fwd_rtn))
+  #print(str(preds)) #------------------------------------------------------------------
   
   
   # 12. Extract model specific variable importance -------------------------------------------------------------------------
+  
   # TO DO: document how variable importance is derived for different models
   # https://koalaverse.github.io/vip/articles/vip.html | https://koalaverse.github.io/vip/reference/vi_model.html
   
@@ -375,20 +400,17 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   
   # Label start & end date
   if (hyper_params) {
-    
     tune_metrics$start <- start
 	  tune_metrics$end   <- end
-	  
-  } else {
+  } 
     
-    preds$start        <- start
-  	preds$end          <- end
-  	var_imp$start      <- start
-  	var_imp$end        <- end
-  	preds_shap$start   <- start
-  	preds_shap$end     <- end
-  	
-  }
+  preds$start        <- start
+	preds$end          <- end
+	var_imp$start      <- start
+	var_imp$end        <- end
+	preds_shap$start   <- start
+	preds_shap$end     <- end
+
   
   
   # Add data frame to list
@@ -396,13 +418,11 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     
     tune_metrics_list[[i]] <- tune_metrics
     
-  } else {
+  } 
     
-    preds_list[[i]]        <- preds
-  	var_imp_list[[i]]      <- var_imp
-  	pred_shap_list[[i]]    <- preds_shap
-  	
-  }
+  preds_list[[i]]        <- preds
+  var_imp_list[[i]]      <- var_imp
+  pred_shap_list[[i]]    <- preds_shap
   
 }
 
@@ -412,27 +432,27 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
 # Data frames in list to single data frame
 if (hyper_params) {
   tune_metrics_all <- dplyr::bind_rows(tune_metrics_list)
-} else {
-  preds_all        <- dplyr::bind_rows(preds_list)
-  var_imp_all      <- dplyr::bind_rows(var_imp_list)
-  preds_shap_all   <- dplyr::bind_rows(pred_shap_list)
-}
+} 
 
-
+preds_all        <- dplyr::bind_rows(preds_list)
+var_imp_all      <- dplyr::bind_rows(var_imp_list)
+preds_shap_all   <- dplyr::bind_rows(pred_shap_list)
+  
 # Remove dupes
 preds_all <- preds_all[!duplicated(preds_all[, c('symbol', 'date_stamp')]), ]
 preds_all %>% group_by(symbol, date_stamp) %>% summarise(n = n()) %>% filter(n > 1)
+
 
 
 # Write to csv
 # ^^^ same number of records
 if (hyper_params) {
   write_csv(tune_metrics_all, paste0(getwd(),"/02-data_06-hyper-parms.csv"))
-} else {
-  write_csv(preds_all,        paste0(getwd(),"/02-data_04-vldtn-preds.csv")) # ^^^ 
-  write_csv(preds_shap_all,   paste0(getwd(),"/02-data_05-shap-values.csv")) # ^^^
-  write_csv(var_imp_all,      paste0(getwd(),"/02-data_07-var-imp.csv"))
-}
+} 
+
+write_csv(preds_all,        paste0(getwd(),"/02-data_04-vldtn-preds.csv")) # ^^^ 
+write_csv(preds_shap_all,   paste0(getwd(),"/02-data_05-shap-values.csv")) # ^^^
+write_csv(var_imp_all,      paste0(getwd(),"/02-data_07-var-imp.csv"))
 
 
 
@@ -440,7 +460,7 @@ if (hyper_params) {
 
 # Final model
 set.seed(456)
-# Fit on most recent dataset (same training period as above)
+# Fit on most recent data set (same training period as above)
 if (hyper_params) {
   final_model <- final_workflow %>% 
 	fit(data = filter(df_train, between(date_stamp, as.Date(!!start), as.Date(!!end))))

@@ -47,7 +47,8 @@ def_theme1 <- theme_minimal() +
 
 # External arguments / parameters
 json_args <- jsonlite::read_json(paste0(getwd(),"/01-scripts_02-args.json"))
-preds <- json_args$predictors
+preds          <- json_args$predictors
+hyper_params   <- as.logical(json_args$hyper_params)
 ```
 
 <br>
@@ -238,12 +239,12 @@ if (file.exists(paste0(getwd(),"/02-data_07-var-imp.csv"))) {
 }
 ```
 
-### Model coefficients
+### Hyper-parameter stability
 
-```{r chunk1.4}
-if (file.exists(paste0(getwd(),"/02-data_06-coefs.csv"))) {
+```{r chunk1.4 eval=hyper_params}
+if (file.exists(paste0(getwd(),"/02-data_06-hyper-parms.csv"))) {
 
-  coefs_raw <- read_csv(paste0(getwd(),"/02-data_06-coefs.csv"))
+  coefs_raw <- read_csv(paste0(getwd(),"/02-data_06-hyper-parms.csv"))
   
   # Plot Shap-based variable importance
   coefs_raw %>% pivot_longer(!date_stamp, names_to = "predictor", values_to = "coefficient") %>% 

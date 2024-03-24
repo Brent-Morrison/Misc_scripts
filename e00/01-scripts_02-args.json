@@ -1,14 +1,15 @@
 {
-	"folder"			:	"e00"
+	"folder"			    :	"e00"
 	,"lookback_yrs"		:	8
 	,"fwd_rtn_months"	:	3
 	,"train_months"  	:	36
-	,"test_months"  	:   6
-	,"model_type"		:	"lm"
-	,"x_sect_scale"		:	"TRUE"
-	,"hyper_params"		:	"FALSE"
+	,"test_months"  	: 12
+	,"model_type"		  :	"nnet"
+	,"x_sect_scale"		:	"FALSE"
+	,"ts_normalise"   : "TRUE"
+	,"hyper_params"		:	"TRUE"
 	,"train_on_qntls"	:	"FALSE"
 	,"cross_val_v"		: 	3
 	,"error_metric"		:	"mae"
-	,"predictors"		:	["rtn_ari_1m","rtn_ari_3m","rtn_ari_12m","perc_range_12m","perc_pos_12m","rtn_from_high_12m","vol_ari_60d"]
+	,"predictors"		  :	["rtn_ari_1m","rtn_ari_3m","rtn_ari_12m","perc_range_12m","perc_pos_12m","rtn_from_high_12m","vol_ari_60d"]
 }
