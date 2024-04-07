@@ -266,29 +266,37 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
       grid = grid,
       # ensure metric corresponds to regression / classification
       metrics = metric_set(mae),                                                   #### PARAMETER ####
-      control = control_grid(save_pred = TRUE)
+      control = control_grid(
+        save_pred = TRUE,
+        save_workflow = TRUE
+        )
     )
     
     
-    # 7.1 Assess stability of model ------------------------------------------------------------------------------------------
+    # 7.1 Assess stability of model ----------------------------------------------------------------------------------------
     # Export - determine if the different hyper-parameter specifications lead to different loss
     tune_metrics <- tune::collect_metrics(tune_resamples, summarize = FALSE)
     
     
-    # 8. Select best parameters ----------------------------------------------------------------------------------------------
+    # 8. Select best parameters --------------------------------------------------------------------------------------------
     best_param <- tune::select_best(tune_resamples, metric = "mae")
     cat("\nBest parameters ---------------")
     print(best_param)
     cat("\n")
     
-    # 9. Finalise workflow ---------------------------------------------------------------------------------------------------
+    # 9. Finalise workflow (update the workflow with the best tuning parameters) -------------------------------------------
     final_workflow <- tune::finalize_workflow(workflow, best_param)
     
     
-    # 10. Final fit (fit best model to the training set) ---------------------------------------------------------------------
+    # 10. Final fit (fit best model to the training set) -------------------------------------------------------------------
+    
+    # https://www.tidyverse.org/blog/2023/04/tuning-delights/
+    # While fit_best() gives a fitted workflow, last_fit() gives you the performance results. 
+    # If you want the fitted workflow, you can extract it from the result of last_fit() via extract_workflow()
     
     set.seed(456)
-    final_fit <- tune::last_fit(final_workflow, split) # While fit_best() gives a fitted workflow, last_fit() gives you the performance results. If you want the fitted workflow, you can extract it from the result of last_fit() via extract_workflow()
+    final_fit <- tune::last_fit(final_workflow, split) 
+    #final_fit <- fit(final_workflow, train)
     
   }	else if (model_type == "lm") {
     
@@ -331,6 +339,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   
   if (hyper_params) {
     preds <- tune::collect_predictions(final_fit, summarize = FALSE)      # https://tune.tidymodels.org/reference/collect_predictions.html
+    #preds <- predict(final_fit, test)
     print(str(preds))
     preds <- bind_cols(preds, select(test, symbol, date_stamp, fwd_rtn))  # join labels to predictions
   } else if (model_type == "lm") {

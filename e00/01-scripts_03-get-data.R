@@ -95,12 +95,12 @@ df <- qry_rslt %>%
   mutate(date_char = as.character(date_stamp)) %>%  
   select(
     date_stamp, date_char, symbol, fwd_rtn,
-    rtn_ari_1m, #rtn_ari_1m_sct, rtn_ari_1m_ind,
-    rtn_ari_3m, #rtn_ari_3m_sct, rtn_ari_3m_ind,
-    rtn_ari_12m, #rtn_ari_12m_sct, rtn_ari_12m_ind, 
+    rtn_ari_1m, rtn_ari_1m_sct, rtn_ari_1m_ind,
+    rtn_ari_3m, rtn_ari_3m_sct, rtn_ari_3m_ind,
+    rtn_ari_12m, rtn_ari_12m_sct, rtn_ari_12m_ind, 
     perc_range_12m, perc_pos_12m, rtn_from_high_12m,
-    vol_ari_60d#, #vol_ari_60d_sct, vol_ari_60d_ind,
-    #skew_ari_120d, kurt_ari_120d 
+    vol_ari_60d, vol_ari_60d_sct, vol_ari_60d_ind,
+    skew_ari_120d, kurt_ari_120d 
   ) 
 
 
