@@ -12,6 +12,7 @@ library(romerb)
 
 
 # 'ggparcoord' for eda visualisation, https://uc-r.github.io/gda | https://homepage.divms.uiowa.edu/~luke/classes/STAT4580/parcor.html | https://ggobi.github.io/ggally/reference/ggparcoord.html
+# https://brunocarlin.github.io/tidy.outliers/index.html
 
 # External parameters
 json_args <- jsonlite::read_json(paste0(getwd(),"/01-scripts_02-args.json"))
@@ -144,9 +145,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
       update_role(date_char, new_role = 'date_char') %>% 
       update_role(symbol, new_role = 'symbol') %>% 
       update_role(unlist(predictors), new_role = 'predictor') %>% 
-      update_role(fwd_rtn, new_role = 'outcome') #%>% 
-      #step_normalize(all_predictors()) 
-      #step_corr(all_predictors(), threshold = .5)
+      update_role(fwd_rtn, new_role = 'outcome') 
   } 
 
   if (ts_normalise) {
@@ -340,8 +339,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
   if (hyper_params) {
     preds <- tune::collect_predictions(final_fit, summarize = FALSE)      # https://tune.tidymodels.org/reference/collect_predictions.html
     #preds <- predict(final_fit, test)
-    print(str(preds))
-    preds <- bind_cols(preds, select(test, symbol, date_stamp, fwd_rtn))  # join labels to predictions
+    preds <- bind_cols(preds, select(test, symbol, date_stamp, fwd_rtn_chk = fwd_rtn))  # join labels to predictions
   } else if (model_type == "lm") {
 	  preds <- predict(final_fit, test[, paste(predictors)])
 	  preds <- bind_cols(preds, select(test, symbol, date_stamp, fwd_rtn))  # join labels to predictions

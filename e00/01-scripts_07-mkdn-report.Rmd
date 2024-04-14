@@ -1,8 +1,4 @@
-
 ---
-params:
-  folder:
-    value: x
 title: "Backtest - experiment"
 author: "Brent Morrison"
 date: "`r Sys.Date()`"
@@ -19,10 +15,8 @@ output:
       smooth_scroll: FALSE
 ---
 
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error = FALSE)
-folder <- params$folder
 
 # Libraries
 library(dplyr)
@@ -52,8 +46,15 @@ def_theme1 <- theme_minimal() +
     )
 
 # External arguments / parameters
-json_args <- jsonlite::read_json(paste0(getwd(),"/01-scripts_02-args.json"))
+json_args      <- jsonlite::read_json(paste0(getwd(),"/01-scripts_02-args.json"))
+preds          <- json_args$predictors
+hyper_params   <- as.logical(json_args$hyper_params)
 ```
+
+<br>
+
+## Overview  
+DESCRIPTION TO GO HERE.
 
 ## Backtest parameters  
 
@@ -78,14 +79,54 @@ predictor_vars <- names(model[["pre"]][["mold"]][["predictors"]])
 kbl(data.frame(predictor_vars)) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
 ```
 
-## Predictor descriptive statistics  
+
+### Data
+
+```{r chunk0.0}
+training_data_raw <- read_csv(paste0(getwd(),"/02-data_01-training.csv"))
+
+training_data_raw %>% 
+  group_by(date_stamp) %>% 
+  summarise(n = n()) %>% 
+  ggplot(aes(x = date_stamp, y = n)) + 
+  geom_line() +
+  labs(
+      x = '',
+      y = '',
+      title = 'Training data',
+      subtitle = 'Count of stocks by date'
+      ) +
+  def_theme1
+```
+
+
+## Predictor vs returns  
 
 ```{r chunk0}
 training_data_raw <- read_csv(paste0(getwd(),"/02-data_01-training.csv"))
-max_date <- max(training_data_raw$date_stamp)
-cor_data <- sapply(training_data_raw[training_data_raw$date_stamp == max_date , c('fwd_rtn', predictor_vars)], Winsorize, probs = c(0.05, 0.95))
-chart.Correlation(cor_data, histogram=TRUE, pch=1)
+training_data_corr <- training_data_raw %>% 
+  select(date_stamp, symbol, fwd_rtn, unlist(preds)) %>% 
+  pivot_longer(cols = unlist(preds), names_to = "predictor", values_to = "pred_value") %>% 
+  group_by(date_stamp, predictor) %>% 
+  mutate(pred_value_wins = Winsorize(pred_value, probs = c(0.025, 0.975))) %>% 
+  ungroup() 
+training_data_corr %>% 
+  ggplot(
+  aes(y = fwd_rtn, x = pred_value_wins)
+  ) + 
+  geom_point(alpha = 0.01) +
+  #geom_abline(intercept = 0, slope = 1) +
+  labs(
+    title = 'Returns and predictor variables',
+    subtitle = 'Data winsorised at 2.5% and 97.5% level',
+    y = 'Forward returns',
+    x = 'Predictor value'
+  ) +
+  facet_wrap(vars(predictor), scales = "free") +
+  def_theme1
 ```
+
+
 
 
 
@@ -93,37 +134,20 @@ chart.Correlation(cor_data, histogram=TRUE, pch=1)
 
 
 ```{r chunk1}
-vldtn_preds_raw <- read_csv(paste0(getwd(),"/02-data_04-vldtn-preds.csv"))
+if (file.exists(paste0(getwd(),"/02-data_04-vldtn-preds.csv"))){
 
-p1 <- ggplot(
-  vldtn_preds_raw, 
-  aes(y = fwd_rtn, x = .pred)
-  ) + 
-  geom_point(alpha = 0.1) +
-  geom_abline(intercept = 0, slope = 1) +
-  labs(
-    title = 'Predicted returns',
-    subtitle = 'Actual vs fitted',
-    y = 'Actual',
-    x = 'Fitted'
-  ) +
-  theme(
-    plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey40", hjust = 0),
-    axis.text.x = element_blank(),
-    axis.text.y = element_blank(),
-    axis.ticks = element_blank()
-  ) +
-  def_theme1
-
-p2 <- vldtn_preds_raw %>% 
-  mutate(residual = .pred - fwd_rtn) %>% 
-  ggplot(aes(y = residual, x = .pred)) + 
+  vldtn_preds_raw <- read_csv(paste0(getwd(),"/02-data_04-vldtn-preds.csv"))
+  
+  p1 <- ggplot(
+    vldtn_preds_raw, 
+    aes(y = fwd_rtn, x = .pred)
+    ) + 
     geom_point(alpha = 0.1) +
     geom_abline(intercept = 0, slope = 1) +
     labs(
       title = 'Predicted returns',
-      subtitle = 'Residual vs fitted',
-      y = 'Residual',
+      subtitle = 'Actual vs fitted',
+      y = 'Actual',
       x = 'Fitted'
     ) +
     theme(
@@ -133,8 +157,33 @@ p2 <- vldtn_preds_raw %>%
       axis.ticks = element_blank()
     ) +
     def_theme1
-
-plot_grid(p1, p2, align = "h")
+  
+  p2 <- vldtn_preds_raw %>% 
+    mutate(residual = .pred - fwd_rtn) %>% 
+    ggplot(aes(y = residual, x = .pred)) + 
+      geom_point(alpha = 0.1) +
+      geom_abline(intercept = 0, slope = 1) +
+      labs(
+        title = 'Predicted returns',
+        subtitle = 'Residual vs fitted',
+        y = 'Residual',
+        x = 'Fitted'
+      ) +
+      theme(
+        plot.caption = element_text(size = 8, margin = margin(t = 10), color = "grey40", hjust = 0),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank()
+      ) +
+      def_theme1
+  
+  plot_grid(p1, p2, align = "h")
+  
+} else {
+  
+  print('NA')
+  
+}
 ```
 
 
@@ -143,60 +192,108 @@ plot_grid(p1, p2, align = "h")
 ### Shapley values via `fastshap`
 
 ```{r chunk1.2}
-shap_raw <- read_csv(paste0(getwd(),"/02-data_05-shap-values.csv"))
-
-#shap_imp <- data.frame(
-#  Variable = names(shap_raw[,!names(shap_raw) %in% c("start", "end")]),
-#  Importance = apply(
-#    shap_raw[,!names(shap_raw) %in% c("start", "end")],
-#    MARGIN = 2, FUN = function(x) sum(abs(x))
-#    )
-#)
-
-shap_imp <- shap_raw %>% 
-  select(-start) %>% 
-  group_by(end) %>%
-  summarise(across(everything(), function(x) sum(abs(x)))) %>% 
-  pivot_longer(!end, names_to = "Predictors", values_to = "Importance")
-             
-
-# Plot Shap-based variable importance
-ggplot(shap_imp, aes(reorder(Predictors, Importance), Importance)) +
-  geom_col() +
-  coord_flip() +
-  xlab("") +
-  ylab("mean(|Shapley value|)") +
-  facet_wrap(vars(end)) +
-  labs(
-    title = 'Sum of the absolute value of Shapley values',
-    subtitle = 'By sliding window validation set',
-    x = '',
-    y = ''
-  ) +
-  def_theme1
+if (file.exists(paste0(getwd(),'/02-data_05-shap-values.csv'))) {
+  
+  shap_raw <- read_csv(paste0(getwd(),"/02-data_05-shap-values.csv"))
+  
+  #shap_imp <- data.frame(
+  #  Variable = names(shap_raw[,!names(shap_raw) %in% c("start", "end")]),
+  #  Importance = apply(
+  #    shap_raw[,!names(shap_raw) %in% c("start", "end")],
+  #    MARGIN = 2, FUN = function(x) sum(abs(x))
+  #    )
+  #)
+  
+  shap_imp <- shap_raw %>% 
+    select(-start) %>% 
+    group_by(end) %>%
+    summarise(across(everything(), function(x) sum(abs(x)))) %>% 
+    pivot_longer(!end, names_to = "Predictors", values_to = "Importance")
+               
+  
+  # Plot Shap-based variable importance
+  ggplot(shap_imp, aes(reorder(Predictors, Importance), Importance)) +
+    geom_col() +
+    coord_flip() +
+    xlab("") +
+    ylab("mean(|Shapley value|)") +
+    facet_wrap(vars(end)) +
+    labs(
+      title = 'Sum of the absolute value of Shapley values',
+      subtitle = 'Grouped by sliding window validation set',
+      x = '',
+      y = ''
+    ) +
+    def_theme1
+  
+} else {
+  
+  print('NA')
+  
+}
 ```
 
 ### Model specific via `vip`
 
 ```{r chunk1.3}
-vip_raw <- read_csv(paste0(getwd(),"/02-data_07-var-imp.csv"))
+if (file.exists(paste0(getwd(),"/02-data_07-var-imp.csv"))) {
 
-# Plot Shap-based variable importance
-ggplot(vip_raw, aes(reorder(Variable, Importance), Importance)) +
-  geom_col() +
-  coord_flip() +
-  xlab("") +
-  ylab("mean(|Shapley value|)") +
-  facet_wrap(vars(end)) +
-  labs(
-    title = 'Model specific variable importance',
-    subtitle = 'By sliding window model specification',
-    x = '',
-    y = ''
-  ) +
-  def_theme1
+  vip_raw <- read_csv(paste0(getwd(),"/02-data_07-var-imp.csv"))
+  
+  # Plot Shap-based variable importance
+  ggplot(vip_raw, aes(reorder(Variable, Importance), Importance)) +
+    geom_col() +
+    coord_flip() +
+    xlab("") +
+    ylab("mean(|Shapley value|)") +
+    facet_wrap(vars(end)) +
+    labs(
+      title = 'Model specific variable importance',
+      subtitle = 'By sliding window model specification',
+      x = '',
+      y = ''
+    ) +
+    def_theme1
+  
+} else {
+  
+  print('NA')
+  
+}
 ```
 
+### Hyper-parameter stability 
+
+If a model captures the true data generating process the hyper-parameters should be relatively constant.  
+
+```{r chunk1.4, eval=hyper_params}
+if (file.exists(paste0(getwd(),"/02-data_06-hyper-parms.csv"))) {
+
+  hyper_parms_raw <- read_csv(paste0(getwd(),"/02-data_06-hyper-parms.csv"))
+  
+  # Plot Shap-based variable importance
+  hyper_parms_raw %>% 
+    #pivot_longer(!date_stamp, names_to = "predictor", values_to = "coefficient") %>% 
+    group_by(.config, hidden_units, penalty, end) %>% 
+    summarise(mae = mean(.estimate)) %>% 
+  ggplot(aes(x = end, y = mae, group = .config, color = .config)) + #, linetype = .config
+    geom_line() +
+    labs(
+      title = "Mean absolute error by hyperparameter setting and sliding window"
+      #subtitle = "",
+      #caption = ""
+      ) +
+    def_theme1 +
+    theme(legend.position = "none") +
+    scale_color_grey(start = 0.9, end = 0.1) +
+    scale_x_date(date_breaks = "year", date_labels = "%Y")
+  
+} else {
+  
+  print('NA')
+  
+}
+```
 
 ## Out of sample predictions
 
@@ -212,11 +309,10 @@ rmarkdown::paged_table(df)
 
 ## Stability-plasticity dilemma
 
-http://www.mlfactor.com/causality.html
+http://www.mlfactor.com/causality.html#nonstat
 
-## Answer
 
-Text here ....
+
 
 
 ## Performance metrics
