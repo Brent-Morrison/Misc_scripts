@@ -49,6 +49,7 @@ def_theme1 <- theme_minimal() +
 json_args      <- jsonlite::read_json(paste0(getwd(),"/01-scripts_02-args.json"))
 preds          <- json_args$predictors
 hyper_params   <- as.logical(json_args$hyper_params)
+model_type     <- json_args$model_type
 ```
 
 <br>
@@ -264,17 +265,29 @@ if (file.exists(paste0(getwd(),"/02-data_07-var-imp.csv"))) {
 
 ### Hyper-parameter stability 
 
-If a model captures the true data generating process the hyper-parameters should be relatively constant.  
+If a model captures the true data generating process the best hyper-parameters should be stable over each training instance / sliding window.  
 
 ```{r chunk1.4, eval=hyper_params}
 if (file.exists(paste0(getwd(),"/02-data_06-hyper-parms.csv"))) {
 
   hyper_parms_raw <- read_csv(paste0(getwd(),"/02-data_06-hyper-parms.csv"))
   
+  # Select the appropriate hyper-parameters (this needs to correspond to that per section 5 of the 01-scripts-train-model.R)
+  # https://stackoverflow.com/questions/47912107/dplyr-group-by-colnames-described-as-vector-of-strings/63402524#63402524
+  if (model_type == "xgb") {
+    params <- c("mtry", "tree_depth")
+  } else if (model_type == "mars") {
+    params <- c("num_terms", "prod_degree")
+  } else if (model_type == "rf") {
+    params <- c("mtry")
+  } else if (model_type == "nnet") {
+    params <- c("hidden_units","penalty")
+  }
+  
   # Plot Shap-based variable importance
   hyper_parms_raw %>% 
     #pivot_longer(!date_stamp, names_to = "predictor", values_to = "coefficient") %>% 
-    group_by(.config, hidden_units, penalty, end) %>% 
+    group_by(.config, end) %>% 
     summarise(mae = mean(.estimate)) %>% 
   ggplot(aes(x = end, y = mae, group = .config, color = .config)) + #, linetype = .config
     geom_line() +
