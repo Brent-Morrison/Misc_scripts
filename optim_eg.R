@@ -55,7 +55,7 @@ r <- p* q
 
 tariff_revenue <- colSums(r) / 1e6
 tariff_revenue
-sum(tariff_revenue)
+sum(tariff_revenue)  # should sum to 4,571.47
 
 
 
@@ -81,9 +81,12 @@ sum(tariff_revenue)
 
 
 # Optimisation / price goal seek
-npv_optim_func <- function(theta, pdyr, npv_required, p0, q) {
+npv_optim_func <- function(theta, pdyr, rev_req, p0, q) {
   
   # https://r-pkgs.org/man.html
+  # theta   - a numeric vector of length 3, regulatory rate of return, price delta 1, price delta 2
+  # pdyr    - an integer between 1 and 5 representing the year in which price delta 2 comes into effect
+  # rev_req - vector of revenue requirement
   
   pdpar        <- theta[-1]
   rrr          <- theta[1]
@@ -93,20 +96,23 @@ npv_optim_func <- function(theta, pdyr, npv_required, p0, q) {
   pnew         <- p0 %*% (1 + pd)
   r            <- pnew * q
   
-  tot_r        <- colSums(r) / 1e6
-  npv_tot_r    <- sum(tot_r / (1 + rrr) ^ (1:length(tot_r)))
-  obj          <- (npv_required - npv_tot_r) ^ 2
+  tot_r        <- colSums(r) / 1 #1e6
+  npv_tot_r    <- sum(tot_r / (1 + rrr) ^ (1:length(tot_r)))* (1 + rrr) ^ 0.5
+  npv_rev_req  <- sum(rev_req / (1 + rrr) ^ (1:length(rev_req)))* (1 + rrr) ^ 0.5
+  obj          <- (npv_rev_req - npv_tot_r) ^ 2
   
   return(obj)
   
 }
 
+p0 <- matrix(rep(10,10), ncol = 1)
+q <- matrix(rep(10,10*5), ncol = 5)
 
 
 # Test function
-pdpar <- c(0.009, 0.025)
-theta <- c(0.043, pdpar)
-npv_optim_func(theta, pdyr=2, npv_required=635.72, p0, q)
+pdpar <- c(-0.057, 0)
+theta <- c(0.0255, pdpar)
+npv_optim_func(theta, pdyr=2, rev_req=c(944.25,923.41,921.62,917.46,926.28), p0, q)
 
 
 
@@ -114,7 +120,7 @@ npv_optim_func(theta, pdyr=2, npv_required=635.72, p0, q)
 optim(
   
   # Initial values for the parameters to be optimized over
-  par = c(0.043, 0.09, 0.02),
+  par = c(0.02, 0.01, 0.01),
   
   # Function to be minimized, first argument being vector of parameters over which minimization is applied
   fn  = npv_optim_func,
@@ -122,14 +128,14 @@ optim(
   method = "L-BFGS-B",
   
   # Upper & lower constraints for parameters | use .Machine$double.eps ??
-  lower = c(0.043-.Machine$double.eps, 0.009-1e-8, 0),
-  upper = c(0.043+.Machine$double.eps, 0.009+1e-8, 1),
+  lower = c(0.02-.Machine$double.eps, 0.01-1e-8, 0),
+  upper = c(0.02+.Machine$double.eps, 0.01+1e-8, 1),
   
   # ... Further arguments to be passed to fn
-  pdyr=2,
-  npv_required = 635.72,
-  p0 = p0,
-  q = q
+  pdyr    = 2,
+  rev_req = c(944.25,923.41,921.62,917.46,926.28),
+  p0      = p0,
+  q       = q
   
 )
 
