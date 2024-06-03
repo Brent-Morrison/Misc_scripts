@@ -15,13 +15,31 @@ x_sect_scale   <- as.logical(json_args$x_sect_scale)
 hyper_params   <- as.logical(json_args$hyper_params)
 predictors     <- json_args$predictors
 
+# Load appropriate library
+if (model_type == "xgb") {
+  library(xgboost)
+} else if (model_type == "mars") {
+  library(earth)
+} else if (model_type == "rf") {
+  library(randomForest)
+} else if (model_type == "nnet") {
+  library(nnet)
+} else if (model_type == "glm") {
+  library(glmnet)
+}
 
 # Data
 df <- read_csv(paste0(getwd(),"/02-data_02-scoring.csv"))
 print(head(df))
 
-print("date_char to character")
-df <- df %>% mutate(date_char = as.character(date_stamp))
+print("Symbols with NA's --------------------------------------------------------------------------")
+print(df[!complete.cases(df), ]$symbol)
+
+print("date_char to character & drop NA's ---------------------------------------------------------")
+df <- df %>% 
+  mutate(date_char = as.character(date_stamp)) %>% 
+  drop_na()
+
 
 if (x_sect_scale) {
   df <- xsect_scale(df, predictors)
@@ -36,7 +54,7 @@ model <- readRDS(paste0(getwd(),"/03-model_01-oos-pred-model"))
 print("Print model")
 model
 
-print("Call predict")
+print("Call predict -------------------------------------------------------------------------------")
 preds <- predict(model, new_data = df)
 
 #Join predictions to labelled data

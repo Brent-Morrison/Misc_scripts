@@ -243,7 +243,7 @@ for (i in seq(from = start_month_idx, by = test_months / fwd_rtn_months, length.
     } else if (model_type == "nnet") {
       
       grid <- grid_regular(
-        hidden_units(range = c(3, 5)),
+        hidden_units(range = c(3, 9)),
         penalty()
         )
       

@@ -207,3 +207,121 @@ dpn_mtrix <- t(mapply(FUN = reg_depn, split(c, row(c)), yr_op = c(6,3,7,4,4,5,1,
 dpn_mtrix
 
 colSums(dpn_mtrix)
+
+
+
+
+# ---------------------------------------------------------------------------------------------------------
+
+# Matrix accounting
+
+# ---------------------------------------------------------------------------------------------------------
+
+library(abind)
+library(readxl)
+
+
+# Turn off scientific notation
+options(scipen=0) #999
+
+
+# Matrix dimensions
+
+mon <- 1:6                                                                                     # Number of months
+txn <- c("opn","inc","csh","wof","cpx","dpn","age","cls")                                      # Transaction types
+# opn - opening balances
+# inc - posting income
+# csh - cash receipts from debtors
+# wof - debtors write-off
+# cpx - capex
+# dpn - depreciation
+# age - re-allocate debtors ageing at month start (not used)
+# cls - closing balance
+
+act <- c(100,200,250,260,300,3051,3052,3053,375,376,400,410,455,500,510)                       # GL accounts
+opn_bal <- c(0, 0, 0, 0, 18, 10, 5, 3.7, 1895.8, -58.8, -43.7, 0, -450.9, -307.8, -1071.3)     # Opening balances
+
+
+
+dat1 <- read_xlsx("model_data.xlsx", range = "act-opn_bal!A1:B15", col_names = TRUE)
+act <- unlist(dat1[,"act"], use.names = FALSE)
+opn_bal <- unlist(dat1[,"opn_bal"], use.names = FALSE)
+
+dat2 <- read_xlsx("model_data.xlsx", range = "txn!B2:G5", col_names = FALSE)
+
+
+# Transaction balances
+# https://stackoverflow.com/questions/19340401/convert-a-row-of-a-data-frame-to-a-simple-vector-in-r
+income <- c(10.5, 10.5, 10.5, 11, 11, 11)
+capex <- c(5, 3, 4, 5, 3, 4)
+rcpt1_rate <- c(0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
+rcpt2_rate <- c(0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
+rcpt2_rate <- c(0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
+
+
+# Create matrix and assign names and opening balances
+mat <- array(rep(0, length(act) * length(txn) * length(mon)), , dim=c(length(act), length(txn), length(mon)))
+dimnames(mat)[[1]] <- act
+dimnames(mat)[[2]] <- txn
+dimnames(mat)[[3]] <- mon
+mat[,,1][,"opn"] <- opn_bal
+mat[,,1]
+round(colSums(mat[,,1]), 3)
+
+
+# Transaction loop
+for (i in 1:length(mon)) {
+  
+  # Opening balances & debtors ageing post loop/ month 1
+  if (i > 1) {
+    
+    # Opening balances
+    mat[,,i][, "opn"] <- mat[,,i-1][, "cls"]
+    
+    # Apply debtors aging update to opening balance
+    mat[,,i]["3051", "opn"] <- mat[,,i]["3051", "opn"] - m12
+    mat[,,i]["3052", "opn"] <- mat[,,i]["3052", "opn"] + m12
+    
+    mat[,,i]["3052", "opn"] <- mat[,,i]["3052", "opn"] - m22
+    mat[,,i]["3053", "opn"] <- mat[,,i]["3053", "opn"] + m22
+  }
+  
+  # Post income
+  mat[,,i]["100", "inc"] <- -income[i]
+  mat[,,i]["3051", "inc"] <- income[i]
+  
+  # Post cash receipt from aged debts
+  rcpt1 <- round(mat[,,i]["3051", "opn"] * rcpt1_rate[i], 2)
+  mat[,,i]["300", "csh"] <- mat[,,i]["300", "csh"] + rcpt1
+  mat[,,i]["3051", "csh"] <- -rcpt1
+  
+  rcpt2 <- round(mat[,,i]["3052", "opn"] * rcpt1_rate[i], 2)
+  mat[,,i]["300", "csh"] <- mat[,,i]["300", "csh"] + rcpt2
+  mat[,,i]["3052", "csh"] <- -rcpt2
+  
+  rcpt3 <- round(mat[,,i]["3053", "opn"] * rcpt1_rate[i], 2)
+  mat[,,i]["300", "csh"] <- mat[,,i]["300", "csh"] + rcpt3
+  mat[,,i]["3053", "csh"] <- -rcpt3
+  
+  # Bad debts WO
+  wo <- mat[,,i]["3053", "opn"] + mat[,,i]["3053", "csh"]
+  mat[,,i]["3053", "wof"] <- -wo
+  mat[,,i]["260", "wof"] <- wo
+  
+  # Capex
+  mat[,,i]["300", "cpx"] <- -capex[i]
+  mat[,,i]["375", "cpx"] <- capex[i]  
+  
+  # Collect data for updating debtors aging (applied after rollover to following period)
+  m12 <- mat[,,i]["3051", "opn"] + mat[,,i]["3051", "csh"]   # DR 3052 / CR 3051
+  m22 <- mat[,,i]["3052", "opn"] + mat[,,i]["3052", "csh"]   # DR 3053 / CR 3052
+  
+  # Update closing balance
+  mat[,,i][, "cls"] <- rowSums(mat[,,i][,-ncol(mat[,,i])])
+  
+}
+mat
+
+
+# Check balances
+round(colSums(mat[,,6]), 3)

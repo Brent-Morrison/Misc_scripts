@@ -1,8 +1,8 @@
-"C:\Program Files\R\R-4.1.0\bin\Rscript.exe" C:\Users\brent\Documents\R\Misc_scripts\experiment_03\01-scripts_03-get-data.R
+"C:\Program Files\R\R-4.1.0\bin\Rscript.exe" C:\Users\brent\Documents\R\Misc_scripts\e00\01-scripts_03-get-data.R
 pause
-"C:\Program Files\R\R-4.1.0\bin\Rscript.exe" C:\Users\brent\Documents\R\Misc_scripts\experiment_03\01-scripts_04-train-model.R
+"C:\Program Files\R\R-4.1.0\bin\Rscript.exe" C:\Users\brent\Documents\R\Misc_scripts\e00\01-scripts_04-train-model.R
 pause
-"C:\Program Files\R\R-4.1.0\bin\Rscript.exe" C:\Users\brent\Documents\R\Misc_scripts\experiment_03\01-scripts_05-score-new-data.R
+"C:\Program Files\R\R-4.1.0\bin\Rscript.exe" C:\Users\brent\Documents\R\Misc_scripts\e00\01-scripts_05-score-new-data.R
 pause
-"C:\Program Files\R\R-4.1.0\bin\Rscript.exe" C:\Users\brent\Documents\R\Misc_scripts\experiment_03\01-scripts_06-call-render.R
+"C:\Program Files\R\R-4.1.0\bin\Rscript.exe" C:\Users\brent\Documents\R\Misc_scripts\e00\01-scripts_06-call-render.R
 pause
