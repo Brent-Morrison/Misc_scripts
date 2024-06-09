@@ -228,7 +228,7 @@ options(scipen=0) #999
 # Matrix dimensions
 
 mon <- 1:6                                                                                     # Number of months
-txn <- c("opn","age","inc","csh","wof","cpx","dpn","age","cls")                                      # Transaction types
+txn <- c("opn","age","inc","csh","wof","cpx","dpn","age","int","cls")                          # Transaction types
 # opn - opening balances
 # age - re-allocate debtors ageing at month start (not used)
 # inc - posting income
@@ -304,7 +304,7 @@ for (i in 1:length(mon)) {
   mat[,,i]["100", "inc"] <- -income[i]
   mat[,,i]["3051", "inc"] <- income[i]
   
-  # Post cash receipt from aged debts
+  # Post cash receipt from aged debtors
   rcpt1 <- round(mat[,,i]["3051", "opn"] * rcpt1_rate[i], 2)
   mat[,,i]["300", "csh"] <- mat[,,i]["300", "csh"] + rcpt1
   mat[,,i]["3051", "csh"] <- -rcpt1
@@ -325,6 +325,15 @@ for (i in 1:length(mon)) {
   # Capex
   mat[,,i]["375", "cpx"] <- capex[i] 
   mat[,,i]["300", "cpx"] <- -capex[i]
+  
+  # Interest (accrue)
+  mat[,,i]["260", "int"] <- -mat[,,i]["455", "opn"] * 0.05 / 12
+  mat[,,i]["410", "int"] <- mat[,,i]["455", "opn"] * 0.05 / 12
+  
+  # Interest (pay quarterly)
+  if (i %in% c(3,6,9,12)) {
+    print(mat[,,i]["410", "opn"])
+  }
   
   # Depn
   mat[,,i]["250", "dpn"] <- depn[i]
