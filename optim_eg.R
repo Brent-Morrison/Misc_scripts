@@ -228,22 +228,26 @@ options(scipen=0) #999
 # Matrix dimensions
 
 mon <- 1:6                                                                                     # Number of months
-txn <- c("opn","age","inc","csh","wof","cpx","dpn","age","int","cls")                          # Transaction types
+txn <- c("opn","age","inc","csh","wof","exp","cpx","dpn","inta","intp","bor","cls")                          # Transaction types
 # opn - opening balances
-# age - re-allocate debtors ageing at month start (not used)
+# age - re-allocate debtors ageing at month start
 # inc - posting income
 # csh - cash receipts from debtors
 # wof - debtors write-off
+# exp - posting expenses 
 # cpx - capex
 # dpn - depreciation
-# int - interest (not used)
+# inta - interest (accrue)
+# intp - interest (pay)
+# bor - borrow if cash balance is negative
 # cls - closing balance
 
-act <- c(100,200,250,260,300,3051,3052,3053,375,376,400,410,455,500,510)                       # GL accounts
+act <- c(100,200,250,260,270,300,3051,3052,3053,375,376,400,410,455,500,510)                       # GL accounts
 # 100 - income
 # 200 - operating expenses
 # 250 - depreciation
 # 260 - interest
+# 270 - bad debts
 # 300 - cash
 # 305 - debtors
 # 375 - assets / ppe
@@ -253,7 +257,7 @@ act <- c(100,200,250,260,300,3051,3052,3053,375,376,400,410,455,500,510)        
 # 455 - debt
 # 500 - equity
 # 510 - retained earnings
-opn_bal <- c(0, 0, 0, 0, 18, 10, 5, 3.7, 1895.8, -58.8, -43.7, 0, -450.9, -307.8, -1071.3)     # Opening balances
+opn_bal <- c(0, 0, 0, 0, 0, 18, 10, 5, 3.7, 1895.8, -58.8, -43.7, 0, -450.9, -307.8, -1071.3)     # Opening balances
 
 
 
@@ -266,6 +270,7 @@ opn_bal <- c(0, 0, 0, 0, 18, 10, 5, 3.7, 1895.8, -58.8, -43.7, 0, -450.9, -307.8
 # Transaction balances
 # https://stackoverflow.com/questions/19340401/convert-a-row-of-a-data-frame-to-a-simple-vector-in-r
 income <- c(10.5, 10.5, 10.5, 11, 11, 11)
+expenses <- c(9, 9, 9.5, 17, 17, 11)
 capex <- c(5, 3, 4, 5, 3, 4)
 depn <- c(2, 2, 1.9, 1.9, 1.8, 1.8)
 rcpt1_rate <- c(0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
@@ -320,19 +325,25 @@ for (i in 1:length(mon)) {
   # Bad debts WO
   wo <- mat[,,i]["3053", "opn"] + mat[,,i]["3053", "csh"]
   mat[,,i]["3053", "wof"] <- -wo
-  mat[,,i]["260", "wof"] <- wo
+  mat[,,i]["270", "wof"] <- wo
+  
+  # Expenses
+  mat[,,i]["200", "exp"] <- expenses[i]
+  mat[,,i]["300", "exp"] <- -expenses[i]
   
   # Capex
   mat[,,i]["375", "cpx"] <- capex[i] 
   mat[,,i]["300", "cpx"] <- -capex[i]
   
   # Interest (accrue)
-  mat[,,i]["260", "int"] <- -mat[,,i]["455", "opn"] * 0.05 / 12
-  mat[,,i]["410", "int"] <- mat[,,i]["455", "opn"] * 0.05 / 12
+  mat[,,i]["260", "inta"] <- -mat[,,i]["455", "opn"] * 0.05 / 12
+  mat[,,i]["410", "inta"] <- mat[,,i]["455", "opn"] * 0.05 / 12
   
   # Interest (pay quarterly)
   if (i %in% c(3,6,9,12)) {
-    print(mat[,,i]["410", "opn"])
+    mat[,,i]["410", "intp"] <- -mat[,,i]["410", "opn"]
+    mat[,,i]["300", "intp"] <- mat[,,i]["410", "opn"]
+    #print(mat[,,i]["410", "opn"])
   }
   
   # Depn
@@ -342,6 +353,13 @@ for (i in 1:length(mon)) {
   # Collect data for updating debtors aging (applied after rollover to following period)
   m12 <- mat[,,i]["3051", "opn"] + mat[,,i]["3051", "csh"]   # DR 3052 / CR 3051
   m22 <- mat[,,i]["3052", "opn"] + mat[,,i]["3052", "csh"]   # DR 3053 / CR 3052
+  
+  # Determine if borrowings required
+  cash_bal <- sum(mat[,,i]["300",-ncol(mat[,,i])])
+  if (cash_bal < 0) {
+    mat[,,i]["300", "bor"] <- 20
+    mat[,,i]["455", "bor"] <- -20
+  }
   
   # Update closing balance
   mat[,,i][, "cls"] <- rowSums(mat[,,i][,-ncol(mat[,,i])])
