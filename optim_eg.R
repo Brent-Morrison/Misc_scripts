@@ -291,34 +291,34 @@ round(colSums(mat[,,1]), 3)
 # Transaction loop
 for (i in 1:length(mon)) {
   
-  # Opening balances & debtors ageing post loop/ month 1
+  # Opening balances & debtors ageing post loop / month 1
   if (i > 1) {
     
     # Opening balances
     mat[,,i][, "opn"] <- mat[,,i-1][, "cls"]
     
-    # Apply debtors aging update to opening balance
-    mat[,,i]["3051", "age"] <- mat[,,i]["3051", "age"] - m12 #mat[,,i]["3051", "opn"] - m12
-    mat[,,i]["3052", "age"] <- mat[,,i]["3052", "age"] + m12  #mat[,,i]["3052", "opn"] + m12
+    # Apply debtors aging update
+    mat[,,i]["3051", "age"] <- -m12 #mat[,,i]["3051", "opn"] - m12
+    mat[,,i]["3052", "age"] <- m12  #mat[,,i]["3052", "opn"] + m12
     
-    mat[,,i]["3052", "age"] <- mat[,,i]["3052", "age"] - m22 #mat[,,i]["3052", "opn"] - m22
-    mat[,,i]["3053", "age"] <- mat[,,i]["3053", "age"] + m22  #mat[,,i]["3053", "opn"] + m22
+    mat[,,i]["3052", "age"] <- -m23 #mat[,,i]["3052", "opn"] - m22
+    mat[,,i]["3053", "age"] <- m23  #mat[,,i]["3053", "opn"] + m22
   }
   
   # Post income
   mat[,,i]["100", "inc"] <- -income[i]
   mat[,,i]["3051", "inc"] <- income[i]
   
-  # Post cash receipt from aged debtors
-  rcpt1 <- round(mat[,,i]["3051", "opn"] * rcpt1_rate[i], 2)
+  # Post cash receipt from aged debtors (TO DO - THIS RESULTS IN NEGATIVE AGED BALANCES)
+  rcpt1 <- round(sum(mat[,,i]["3051", c("opn","age")]) * rcpt1_rate[i], 2)
   mat[,,i]["300", "csh"] <- mat[,,i]["300", "csh"] + rcpt1
   mat[,,i]["3051", "csh"] <- -rcpt1
   
-  rcpt2 <- round(mat[,,i]["3052", "opn"] * rcpt1_rate[i], 2)
+  rcpt2 <- round(sum(mat[,,i]["3052", c("opn","age")]) * rcpt1_rate[i], 2)
   mat[,,i]["300", "csh"] <- mat[,,i]["300", "csh"] + rcpt2
   mat[,,i]["3052", "csh"] <- -rcpt2
   
-  rcpt3 <- round(mat[,,i]["3053", "opn"] * rcpt1_rate[i], 2)
+  rcpt3 <- round(sum(mat[,,i]["3053", c("opn","age")]) * rcpt1_rate[i], 2)
   mat[,,i]["300", "csh"] <- mat[,,i]["300", "csh"] + rcpt3
   mat[,,i]["3053", "csh"] <- -rcpt3
   
@@ -351,8 +351,8 @@ for (i in 1:length(mon)) {
   mat[,,i]["376", "dpn"] <- -depn[i] 
   
   # Collect data for updating debtors aging (applied after rollover to following period)
-  m12 <- mat[,,i]["3051", "opn"] + mat[,,i]["3051", "csh"]   # DR 3052 / CR 3051
-  m22 <- mat[,,i]["3052", "opn"] + mat[,,i]["3052", "csh"]   # DR 3053 / CR 3052
+  m12 <- sum(mat[,,i]["3051", c("opn","age","csh")])   # DR 3052 / CR 3051
+  m23 <- sum(mat[,,i]["3052", c("opn","age","csh")])   # DR 3053 / CR 3052
   
   # Determine if borrowings required
   cash_bal <- sum(mat[,,i]["300",-ncol(mat[,,i])])
@@ -379,3 +379,14 @@ new_mat
 round(colSums(new_mat), 3)
 
 sum(new_mat["3051",c("opn","age")])
+
+
+
+vars1 <- c(1,2,3)
+vars2 <- c(10,20,30)
+vars3 <- c(4,5,6)
+mult_one <- function(var1, var2, var3)
+{
+  var1*var2*var3
+}
+mapply(mult_one, vars1, vars2, vars3)
