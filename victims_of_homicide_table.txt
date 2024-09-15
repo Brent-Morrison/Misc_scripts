@@ -1,0 +1,56 @@
+year	source	relationship	male_victim_male_offender	female_victim_male_offender	male_victim_female_offender	female_victim_female_offender
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Intimate partner	0	34	4	0
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Child	5	0	8	3
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Parent	7	7	2	0
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Sibling	4	0	0	0
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Other relative	8	1	0	1
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Friend	9	0	0	0
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Acquaintance	31	2	0	0
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Neighbour/housemate/work colleague	9	4	0	1
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Relationship rival	2	0	0	0
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Gang member	4	0	0	0
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Other	2	1	0	0
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Acquaintance less than 24 hours	2	0	1	0
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Stranger	27	7	1	2
+2023	https://www.aic.gov.au/sites/default/files/2024-06/sr46_homicide_in_australia_2022-23_v3.pdf	Relationship not stated	21	4	5	2
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Intimate partner	2	25	7	1
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Child	4	2	3	6
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Parent	5	4	0	1
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Sibling	0	1	0	0
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Other relative	2	3	0	0
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Friend	4	1	0	0
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Acquaintance	35	0	3	0
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Neighbour/housemate/work colleague	21	3	0	0
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Relationship rival	5	0	0	0
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Gang member	5	0	0	0
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Other	1	1	0	0
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Acquaintance less than 24 hours	4	0	0	0
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Stranger	28	4	1	1
+2022	https://www.aic.gov.au/sites/default/files/2024-04/sr45_homicide_in_australia_2021-22.pdf	Relationship not stated	21	1	3	0
+2021	https://www.aic.gov.au/sites/default/files/2023-03/sr42_homicide_in_australia_2020-21.pdf	Intimate partner	2	25	11	0
+2021	https://www.aic.gov.au/sites/default/files/2023-03/sr42_homicide_in_australia_2020-21.pdf	Child	3	2	4	5
+2021	https://www.aic.gov.au/sites/default/files/2023-03/sr42_homicide_in_australia_2020-21.pdf	Parent	3	6	1	1
+2021	https://www.aic.gov.au/sites/default/files/2023-03/sr42_homicide_in_australia_2020-21.pdf	Sibling	3	0	0	1
+2021	https://www.aic.gov.au/sites/default/files/2023-03/sr42_homicide_in_australia_2020-21.pdf	Other relative	5	3	1	2
+2021	https://www.aic.gov.au/sites/default/files/2023-03/sr42_homicide_in_australia_2020-21.pdf	Friend	9	1	2	1
+2021	https://www.aic.gov.au/sites/default/files/2023-03/sr42_homicide_in_australia_2020-21.pdf	Acquaintance	29	2	0	1
+2021	https://www.aic.gov.au/sites/default/files/2023-03/sr42_homicide_in_australia_2020-21.pdf	Neighbour/housemate/work colleague	12	4	1	0
+2021	https://www.aic.gov.au/sites/default/files/2023-03/sr42_homicide_in_australia_2020-21.pdf	Gang member	6	0	0	0
+2021	https://www.aic.gov.au/sites/default/files/2023-03/sr42_homicide_in_australia_2020-21.pdf	Other	1	1	0	0
+2021	https://www.aic.gov.au/sites/default/files/2023-03/sr42_homicide_in_australia_2020-21.pdf	Acquaintance less than 24 hours	4	1	1	0
+2021	https://www.aic.gov.au/sites/default/files/2023-03/sr42_homicide_in_australia_2020-21.pdf	Stranger	26	6	3	2
+2021	https://www.aic.gov.au/sites/default/files/2023-03/sr42_homicide_in_australia_2020-21.pdf	Relationship not stated	8	1	2	0
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Intimate partner	2	36	6	0
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Child	6	4	0	6
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Parent	6	7	0	2
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Sibling	1	2	0	0
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Other relative	8	2	0	1
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Friend	16	3	2	2
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Acquaintance	29	1	2	0
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Neighbour/housemate/work colleague	14	2	1	1
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Gang member	0	0	0	0
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Relationship rival	1	0	0	0
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Other	7	1	2	2
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Acquaintance less than 24 hours	2	0	0	0
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Stranger	42	10	0	0
+2020	https://www.aic.gov.au/sites/default/files/2022-03/sr39_homicide_in_australia_2019-20.pdf	Relationship not stated	23	1	4	1
