@@ -10,3 +10,5 @@
 .history/
 .vscode/.history/
 *.csv
+!prices_mtrx.csv
+!positions_mtrx.csv
