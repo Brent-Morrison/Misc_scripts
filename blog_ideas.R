@@ -424,6 +424,186 @@ names(n) <- rownames(C)
 
 
 
+# --------------------------------------------------------------------------------------------------------------------------
+#
+# 2. Water Utility characteristics
+#
+# --------------------------------------------------------------------------------------------------------------------------
+
+library(tidyverse)
+library(broom)
+library(readxl)
+library(ggiraphExtra)
+library(DescTools)
+
+
+# NPR data (http://www.bom.gov.au/water/npr/npr_2022-23.shtml)
+# http://www.bom.gov.au/water/npr/docs/2022-23/Urban_NPR_The_complete_dataset_2022-23.xlsx
+path <- "Urban_NPR_The_complete_dataset_2022-23.xlsx"
+df_npr_raw <- read_xlsx(path, range = "Complete dataset!A2:AE13549", col_names = TRUE)
+
+# Format column names
+names(df_npr) <- gsub("-", "_", names(df_npr))
+names(df_npr) <- gsub(" ", "_", names(df_npr))
+names(df_npr) <- gsub("\\(", "", names(df_npr))
+names(df_npr) <- gsub("\\)", "", names(df_npr))
+names(df_npr) <- tolower(gsub("/", "_", names(df_npr)))
+
+# CSV copied from file reference above, retrieved 20250111
+df_npr_raw <- read.csv("Urban_NPR_The_complete_dataset_2022-23.csv")
+df_npr <- df_npr_raw
+npr_names <- c(
+  "area","utility_group","utility","indicator_category","indicator_sub_category","indicator_code",
+  "derived","indicator_name","unit","footnote_2022_2023","2022_2023","2021_2022","2020_2021","2019_2020",
+  "2018_2019","2017_2018","2016_2017","2015_2016","2014_2015","2013_2014","2012_2013","2011_2012",
+  "2010_2011","2009_2010","2008_2009","2007_2008","2006_2007","2005_2006","2004_2005","2003_2004","2002_2003")
+names(df_npr) <- npr_names
+
+
+
+# Long format
+df_npr <- df_npr %>%
+  pivot_longer(
+    cols = starts_with("2"),
+    names_to = "fin_year",
+    values_to = "value"
+  ) %>%
+  mutate(
+    value = if_else(value == "Not applicable", "0", value),
+    value = as.numeric(value)
+  )
+
+
+# Custom indicators
+df_cust_ind <- df_npr %>%
+  filter(indicator_code %in% c("A1","A2","A3","A4","A5","A6","C1","C2","C3","C4","C5","C6","C7","C8","A10","A11")) %>%
+  select(utility, indicator_code, fin_year, value) %>%
+  pivot_wider(names_from = indicator_code, values_from = value) %>%
+  mutate(
+    treat_plant_km_mains = A1 / A2,
+    waste_plant_km_mains = A4 / A5,
+    treat_plant_per_popn = A1 / C1,
+    waste_plant_per_popn = A4 / C1,
+    perc_non_resi_water  = C3 / C4,
+    perc_non_resi_waste  = C7 / C8,
+    perc_waste           = C8 / (C4 + C8),
+    prop_per_km_water    = A3,
+    prop_per_km_sewer    = A6
+  )
+
+
+# Data for cluster analysis
+df_clust <- df_cust_ind %>%
+  filter(fin_year == "2022_2023") %>%
+  select(utility, treat_plant_km_mains:prop_per_km_sewer)
+df_clust <- df_clust[complete.cases(df_clust[, -1]), ]
+
+
+df_clust <- df_clust %>%
+  mutate(across(-utility, ~ Winsorize(., val = quantile(., probs = c(0.05, 0.95), na.rm = TRUE)))) %>%
+  mutate(across(-utility, ~ scale(.)))
+
+
+
+# Cluster
+# https://brentmorrison.netlify.app/post/ifrs9-disclosures-part-2/
+
+kclusts <- tibble(k = 5:50) %>%
+  mutate(
+    kclust = map(k, ~kmeans(df_clust[, -1], .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, df_clust[, -1])
+  )
+
+
+
+clusterings <- kclusts %>%
+  unnest(glanced, .drop = TRUE)
+
+assignments <- kclusts %>%
+  unnest(augmented)
+
+
+ggplot(clusterings, aes(k, tot.withinss)) +
+  geom_line() +
+  ylab("Total within-cluster sum of squares") +
+  xlab("k") +
+  labs(title = "Water Utility clustering analysis",
+       caption = "Source:\nhttp://www.bom.gov.au/water/npr/npr_2022-23.shtml\nUrban_NPR_The_complete_dataset_2022-23.xlsx") +
+  theme_grey() +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 10, color = "darkslategrey"),
+        plot.caption = element_text(size = 9, color = "grey55"))
+
+
+# Perform clustering desired number of k
+set.seed(123)
+kclust16    <- kmeans(df_clust[, -1], centers = 12, nstart = 25)
+kclust16_td <- tidy(kclust16)
+
+# Cluster membership df
+df_clust_ms <- data.frame(utility = df_clust$utility, cluster = kclust16$cluster)
+
+
+# Create data frame assigning cluster names
+n <- length(df_clust[, -1])
+names_kv <- setNames(as.list(letters[1:n]), names(df_clust[, -1]))
+names_lk <- data.frame(name = names(df_clust[, -1]), alias = letters[1:n])
+
+kclust16_nm <- kclust16_td %>%
+  select(-size, -withinss) %>%
+  pivot_longer(cols = -cluster, names_to = "attribute", values_to = "clust_avg") %>%
+  #gather(attribute, clust.avg, -cluster) %>%
+  left_join(names_lk, by = join_by(attribute == name)) %>% 
+  group_by(cluster) %>%
+  mutate(clust.rank = rank(clust_avg)) %>%
+  summarise(
+    first       = alias[which(clust.rank == 1)],
+    second      = alias[which(clust.rank == 2)],
+    second_last = alias[which(clust.rank == n-1)],
+    last        = alias[which(clust.rank == n)]
+    ) %>%
+  mutate(
+    clust.name = paste(last, second_last, second, first, sep = "-"),
+    clust.name = paste(cluster, clust.name, sep = "-")
+    ) %>%
+  left_join(kclust16_td, by = "cluster")
+
+
+# Radar plot of clusters
+names(kclust16_nm)[7:(length(kclust16_nm) - 2)] <- names_lk$alias
+kclust16_nm %>% 
+  select(-size, -withinss, -cluster, -first, -second, -second_last, -last) %>%
+  ggRadar(aes(group = clust.name), rescale = FALSE, legend.position = "none",
+          size = 2, interactive = FALSE, use.label = TRUE, scales = "fixed") +
+  facet_wrap(vars(clust.name), ncol = 4) +
+  scale_y_discrete(breaks = NULL) +
+  labs(title    = "Water Utility clustering analysis",
+       subtitle = "Facet title represents two highest and lowest cluster centres",
+       caption  = "Source:\nhttp://www.bom.gov.au/water/npr/npr_2022-23.shtml\nUrban_NPR_The_complete_dataset_2022-23.xlsx") +
+  theme_grey() +
+  theme(strip.text = element_text(size = 10),
+        legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(color = "darkslategrey"),
+        plot.caption = element_text(size = 9, color = "grey55"))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
