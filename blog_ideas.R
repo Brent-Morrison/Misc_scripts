@@ -450,7 +450,8 @@ names(df_npr) <- gsub("\\)", "", names(df_npr))
 names(df_npr) <- tolower(gsub("/", "_", names(df_npr)))
 
 # CSV copied from file reference above, retrieved 20250111
-df_npr_raw <- read.csv("Urban_NPR_The_complete_dataset_2022-23.csv")
+#df_npr_raw <- read.csv("Urban_NPR_The_complete_dataset_2022-23.csv")
+df_npr_raw <- read.csv("https://raw.githubusercontent.com/Brent-Morrison/Misc_scripts/refs/heads/master/Urban_NPR_The_complete_dataset_2022-23.csv")
 df_npr <- df_npr_raw
 npr_names <- c(
   "area","utility_group","utility","indicator_category","indicator_sub_category","indicator_code",
@@ -507,7 +508,6 @@ df_clust <- df_clust %>%
 
 # Cluster
 # https://brentmorrison.netlify.app/post/ifrs9-disclosures-part-2/
-
 kclusts <- tibble(k = 5:50) %>%
   mutate(
     kclust = map(k, ~kmeans(df_clust[, -1], .x)),
@@ -572,6 +572,8 @@ kclust16_nm <- kclust16_td %>%
 
 
 # Radar plot of clusters
+# https://wilkelab.org/cowplot/articles/drawing_with_on_plots.html#making-inset-plots
+# https://patchwork.data-imaginist.com/articles/guides/layout.html
 names(kclust16_nm)[7:(length(kclust16_nm) - 2)] <- names_lk$alias
 kclust16_nm %>% 
   select(-size, -withinss, -cluster, -first, -second, -second_last, -last) %>%
