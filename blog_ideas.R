@@ -574,6 +574,7 @@ kclust16_nm <- kclust16_td %>%
 # Radar plot of clusters
 # https://wilkelab.org/cowplot/articles/drawing_with_on_plots.html#making-inset-plots
 # https://patchwork.data-imaginist.com/articles/guides/layout.html
+# https://stackoverflow.com/questions/60349028/how-to-add-a-table-to-a-ggplot
 names(kclust16_nm)[7:(length(kclust16_nm) - 2)] <- names_lk$alias
 kclust16_nm %>% 
   select(-size, -withinss, -cluster, -first, -second, -second_last, -last) %>%
@@ -1700,3 +1701,4 @@ for (i in 1:15) {
   }
   
 }
+
