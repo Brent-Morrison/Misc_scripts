@@ -434,6 +434,7 @@ library(tidyverse)
 library(broom)
 library(readxl)
 library(ggiraphExtra)
+library(gridExtra)
 library(DescTools)
 
 
@@ -474,6 +475,13 @@ df_npr <- df_npr %>%
     value = as.numeric(value)
   )
 
+# Data frame for size filter
+df_filt <- df_npr %>% 
+  filter(
+    indicator_name == "Total number of connected properties: water supply",
+    value > 30
+    ) %>% 
+  distinct(utility)
 
 # Custom indicators
 df_cust_ind <- df_npr %>%
@@ -495,7 +503,10 @@ df_cust_ind <- df_npr %>%
 
 # Data for cluster analysis
 df_clust <- df_cust_ind %>%
-  filter(fin_year == "2022_2023") %>%
+  filter(
+    fin_year == "2022_2023",
+    utility %in% df_filt$utility
+    ) %>%
   select(utility, treat_plant_km_mains:prop_per_km_sewer)
 df_clust <- df_clust[complete.cases(df_clust[, -1]), ]
 
@@ -508,7 +519,7 @@ df_clust <- df_clust %>%
 
 # Cluster
 # https://brentmorrison.netlify.app/post/ifrs9-disclosures-part-2/
-kclusts <- tibble(k = 5:50) %>%
+kclusts <- tibble(k = 4:(nrow(df_clust)-10)) %>%
   mutate(
     kclust = map(k, ~kmeans(df_clust[, -1], .x)),
     tidied = map(kclust, tidy),
@@ -538,18 +549,19 @@ ggplot(clusterings, aes(k, tot.withinss)) +
 
 
 # Perform clustering desired number of k
+k <- 6
 set.seed(123)
-kclust16    <- kmeans(df_clust[, -1], centers = 12, nstart = 25)
+kclust16    <- kmeans(df_clust[, -1], centers = k, nstart = 25)
 kclust16_td <- tidy(kclust16)
 
 # Cluster membership df
-df_clust_ms <- data.frame(utility = df_clust$utility, cluster = kclust16$cluster)
+df_clust_ms <- data.frame(cluster = kclust16$cluster, utility = df_clust$utility)
 
 
 # Create data frame assigning cluster names
 n <- length(df_clust[, -1])
 names_kv <- setNames(as.list(letters[1:n]), names(df_clust[, -1]))
-names_lk <- data.frame(name = names(df_clust[, -1]), alias = letters[1:n])
+names_lk <- data.frame(alias = letters[1:n], name = names(df_clust[, -1]))
 
 kclust16_nm <- kclust16_td %>%
   select(-size, -withinss) %>%
@@ -568,7 +580,8 @@ kclust16_nm <- kclust16_td %>%
     clust.name = paste(last, second_last, second, first, sep = "-"),
     clust.name = paste(cluster, clust.name, sep = "-")
     ) %>%
-  left_join(kclust16_td, by = "cluster")
+  left_join(kclust16_td, by = "cluster") %>% 
+  mutate(cluster = as.numeric(cluster))
 
 
 # Radar plot of clusters
@@ -576,11 +589,12 @@ kclust16_nm <- kclust16_td %>%
 # https://patchwork.data-imaginist.com/articles/guides/layout.html
 # https://stackoverflow.com/questions/60349028/how-to-add-a-table-to-a-ggplot
 names(kclust16_nm)[7:(length(kclust16_nm) - 2)] <- names_lk$alias
-kclust16_nm %>% 
+
+c <- kclust16_nm %>% 
   select(-size, -withinss, -cluster, -first, -second, -second_last, -last) %>%
   ggRadar(aes(group = clust.name), rescale = FALSE, legend.position = "none",
           size = 2, interactive = FALSE, use.label = TRUE, scales = "fixed") +
-  facet_wrap(vars(clust.name), ncol = 4) +
+  facet_wrap(vars(clust.name), ncol = 3) +
   scale_y_discrete(breaks = NULL) +
   labs(title    = "Water Utility clustering analysis",
        subtitle = "Facet title represents two highest and lowest cluster centres",
@@ -592,9 +606,23 @@ kclust16_nm %>%
         axis.title.y = element_text(color = "darkslategrey"),
         plot.caption = element_text(size = 9, color = "grey55"))
 
+# Key
+n <- tableGrob(names_lk)
+
+# Utilities closest to cluster centre
+kdist <- df_clust %>% 
+  full_join(df_clust_ms, by = join_by(utility)) %>% 
+  left_join(kclust16_nm, by = join_by(cluster)) %>% 
+  mutate(kdist = sqrt(rowSums((across(2:10) - across(a:i))^2))) %>% 
+  group_by(cluster) %>% 
+  slice_min(order_by = kdist, n = 2) %>% 
+  select(cluster, size, utility)
+
+d <- tableGrob(kdist)
 
 
-
+# https://patchwork.data-imaginist.com/articles/guides/assembly.html
+grid.arrange(c, n, d, ncol=3, widths=c(3,1,1))
 
 
 
