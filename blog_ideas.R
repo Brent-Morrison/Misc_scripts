@@ -1744,44 +1744,53 @@ for (i in 1:15) {
 set.seed(123) # Ensuring reproducibility
 
 # Parameters
-NF <- 10000
-c0 <- 0.5
-beta <- 2
-gamma <- 0.1
-R <- 0
-eta_0_plus <- 0.2
-eta_0_minus <- 0.2
-delta <- 0.02
-Theta <- 3
-phi <- 0.1
-f <- 0.5
-alpha_c <- 4
-phi_pi <- 0
-alpha_Gamma <- 50
-Gamma_0 <- 0
-omega <- 0.2
-g <- 1
-T <- 10000
-Teq <- 5000
+NF <- 10000         # Number of firms
+c0 <- 0.5           # Baseline propensity to consume
+beta <- 2           # Intensity of choice parameter
+gamma <- 0.1        # Baseline price adjustment parameter
+R <- 1.3            # The ratio of hiring/firing propensities
+eta_0_plus <- 0.2   # Baseline firing propensity 
+eta_0_minus <- 0.2  # Baseline hiring propensity
+delta <- 0.02       # Fraction of dividends
+Theta <- 3          # Bankruptcy threshold / maximum leverage in the economy
+phi <- 0.1          # Frequency of firm revival
+f <- 0.5            # Share of bankruptcies supported by the firms
+alpha_c <- 4        # Reaction of consumption to inflation
+phi_pi <- 2.5       # Taylor-like rule parameter - quantifies the intensity of the policy
+alpha_Gamma <- 50   # Reaction of firms to interest rates
+Gamma_0 <- 0        # Baseline financial fragility sensitivity
+pi_star <- 0.04     # Taylor-like rule parameter -  target inflation level
+p_star <- 0.03      # Taylor-like rule parameter - baseline interest rate
+omega <- 0.2        # Exponentially moving average (ema) parameter
+g <- 1              # Indexation of wages to inflation
+tau_R <- 0.5
+tau_T <- 0.5
+t <- 10000
+teq <- 5000
 
-# Initial Conditions
-Y0 <- 0.1 + 0.9 * runif(1)
-p <- rep(NA, NF)
-Y <- rep(NA, NF)
-D <- rep(NA, NF)
-W <- rep(1, NF)
-E <- rep(NA, NF)
-P <- rep(NA, NF)
-a <- rep(1, NF) # Active firms
 
+Y0 <- 0.1 + 0.9 * runif(1)  # Firms production 
+
+# Firm attributes (empty vectors)
+p <- rep(NA, NF)    # Prices - attempted sale of Y
+Y <- rep(NA, NF)    # Quantity of perishable goods produced
+D <- rep(NA, NF)    # Demand for goods
+W <- rep(1, NF)     # Firm wages paid to employee
+E <- rep(NA, NF)    # Firm cash balance, if -ve then debt
+P <- rep(NA, NF)    # Firm profit
+a <- rep(1, NF)     # Active (1) / inactive (0) firm
+
+# Firm attributes (seed data)
 for (i in 1:NF) {
   p[i] <- 1 + 0.1 * (2 * runif(1) - 1)
   Y[i] <- Y0 + 0.1 * (2 * runif(1) - 1)
   D[i] <- Y0
+  W[i] <- 1
   E[i] <- 2 * W[i] * Y[i] * runif(1)
   P[i] <- p[i] * min(D[i], Y[i]) - W[i] * Y[i]
 }
 
+# Total household savings (number of firms less total cash)
 S <- NF - sum(E)
 
 if (phi_pi == 0) {
