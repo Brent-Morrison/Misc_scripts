@@ -1730,3 +1730,125 @@ for (i in 1:15) {
   
 }
 
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+#
+# Agent based model
+# https://arxiv.org/pdf/1709.05117
+#
+# 
+# --------------------------------------------------------------------------------------------------------------------------
+
+# Initialization
+set.seed(123) # Ensuring reproducibility
+
+# Parameters
+NF <- 10000
+c0 <- 0.5
+beta <- 2
+gamma <- 0.1
+R <- 0
+eta_0_plus <- 0.2
+eta_0_minus <- 0.2
+delta <- 0.02
+Theta <- 3
+phi <- 0.1
+f <- 0.5
+alpha_c <- 4
+phi_pi <- 0
+alpha_Gamma <- 50
+Gamma_0 <- 0
+omega <- 0.2
+g <- 1
+T <- 10000
+Teq <- 5000
+
+# Initial Conditions
+Y0 <- 0.1 + 0.9 * runif(1)
+p <- rep(NA, NF)
+Y <- rep(NA, NF)
+D <- rep(NA, NF)
+W <- rep(1, NF)
+E <- rep(NA, NF)
+P <- rep(NA, NF)
+a <- rep(1, NF) # Active firms
+
+for (i in 1:NF) {
+  p[i] <- 1 + 0.1 * (2 * runif(1) - 1)
+  Y[i] <- Y0 + 0.1 * (2 * runif(1) - 1)
+  D[i] <- Y0
+  E[i] <- 2 * W[i] * Y[i] * runif(1)
+  P[i] <- p[i] * min(D[i], Y[i]) - W[i] * Y[i]
+}
+
+S <- NF - sum(E)
+
+if (phi_pi == 0) {
+  pi_star <- 0
+  tau_T <- 0
+}
+
+# Main Loop
+for (t in 1:T) {
+  epsilon <- sum(Y) / NF
+  u <- 1 - epsilon
+  p_mean <- sum(p * Y) / sum(Y)
+  w_mean <- sum(W * Y) / sum(Y)
+  u_star <- exp(W / w_mean) / sum(a * exp(W / w_mean)) / (NF * u)
+  
+  # Central Bank Policy
+  pi_b <- tau_T * pi_star
+  rho_0 <- phi_pi * (pi_star - pi_b)
+  Gamma <- max(alpha_Gamma * (rho_0 - pi_b), Gamma_0)
+  
+  # Firms update prices, productions, and wages
+  for (i in 1:NF) {
+    if (a[i] == 1) {
+      if (E[i] > -Theta * W[i] * Y[i]) {
+        Phi <- -E[i] / (W[i] * Y[i])
+        eta_plus <- eta_0_plus * (1 - Gamma * Phi)
+        eta_minus <- eta_0_minus * (1 + Gamma * Phi)
+        
+        if (Y[i] < D[i]) {
+          if (P[i] > 0) {
+            W[i] <- W[i] * (1 + gamma * (1 - Gamma * Phi) * runif(1))
+            W[i] <- min(W[i], (P[i] * min(D[i], Y[i])) / Y[i])
+          }
+          Y[i] <- Y[i] + min(eta_plus * (D[i] - Y[i]), u_star[i])
+          if (p[i] < p_mean) p[i] <- p[i] * (1 + gamma * runif(1))
+        } else {
+          if (P[i] < 0) {
+            W[i] <- W[i] * (1 - gamma * (1 + Gamma * Phi) * runif(1))
+          }
+          Y[i] <- max(0, Y[i] - eta_minus * (D[i] - Y[i]))
+          if (p[i] > p_mean) p[i] <- p[i] * (1 - gamma * runif(1))
+        }
+        p[i] <- p[i] * (1 + pi_b)
+        W[i] <- W[i] * (1 + g * pi_b)
+        W[i] <- max(W[i], 0)
+      } else {
+        a[i] <- 0
+        S <- S - E[i]
+      }
+    }
+  }
+  
+  # Update Unemployment
+  u <- 1 - sum(Y) / NF
+  p <- sum(p * Y) / sum(Y)
+  
+  # Revivals
+  for (i in 1:NF) {
+    if (a[i] == 0 && runif(1) < phi) {
+      Y[i] <- u * runif(1)
+      a[i] <- 1
+      P[i] <- p
+      W[i] <- w_mean
+      E[i] <- W[i] * Y[i]
+    }
+  }
+}
+
+print("Simulation Complete")
+                   
