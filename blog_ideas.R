@@ -1861,3 +1861,27 @@ for (t in 1:T) {
 
 print("Simulation Complete")
                    
+
+# Dummy SFC set-up
+bal <- matrix(
+  c(0,0,100,-80,-20,0,0,140,-50,-90,0,0,-240,130,110)
+  ,ncol = 3
+  ,dimnames = list(c("Co","Wa","Ca","Mo","NW"), c("HH", "FI", "BA"))
+  )
+bal
+
+txnc <- bal
+txnc[] <- c(1,0,-1,0,0,-1,0,1,0,0,0,0,0,0,0)
+txnc
+
+txnw <- bal
+txnw[] <- c(0,-1,1,0,0,0,1,-1,0,0,0,0,0,0,0)
+txnw
+
+bal <- bal + txnc * 5 + txnw * 6
+bal
+
+sum(abs(colSums(bal)))
+sum(abs(rowSums(bal)))
+
+bal[grepl("C", rownames(bal)),]
