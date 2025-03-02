@@ -1769,6 +1769,27 @@ t <- 10000
 teq <- 5000
 
 
+num_firms <- 10000         # Number of firms
+base_consume_prop <- 0.5   # Baseline propensity to consume
+choice_intensity <- 2      # Intensity of choice parameter
+price_adj_rate <- 0.1      # Baseline price adjustment parameter
+hire_fire_ratio <- 1.3     # The ratio of hiring/firing propensities
+fire_prop <- 0.2          # Baseline firing propensity 
+hire_prop <- 0.2          # Baseline hiring propensity
+div_frac <- 0.02          # Fraction of dividends
+max_leverage <- 3         # Bankruptcy threshold / maximum leverage in the economy
+firm_revive_rate <- 0.1   # Frequency of firm revival
+bankr_support_share <- 0.5 # Share of bankruptcies supported by the firms
+consume_infl_react <- 4   # Reaction of consumption to inflation
+policy_intensity <- 2.5   # Taylor-like rule parameter - quantifies the intensity of the policy
+firm_rate_react <- 50     # Reaction of firms to interest rates
+fragility_sens <- 0       # Baseline financial fragility sensitivity
+target_infl <- 0.04       # Taylor-like rule parameter - target inflation level
+base_interest <- 0.03     # Taylor-like rule parameter - baseline interest rate
+ema_param <- 0.2          # Exponentially moving average (EMA) parameter
+wage_index <- 1           # Indexation of wages to inflation
+
+
 Y0 <- 0.1 + 0.9 * runif(1)  # Firms production 
 
 # Firm attributes (empty vectors)
@@ -1780,7 +1801,7 @@ E <- rep(NA, NF)    # Firm cash balance, if -ve then debt
 P <- rep(NA, NF)    # Firm profit
 a <- rep(1, NF)     # Active (1) / inactive (0) firm
 
-# Firm attributes (seed data)
+# Firm attributes (seed data) for each of NF firms
 for (i in 1:NF) {
   p[i] <- 1 + 0.1 * (2 * runif(1) - 1)
   Y[i] <- Y0 + 0.1 * (2 * runif(1) - 1)
@@ -1863,25 +1884,40 @@ print("Simulation Complete")
                    
 
 # Dummy SFC set-up
-bal <- matrix(
-  c(0,0,100,-80,-20,0,0,140,-50,-90,0,0,-240,130,110)
-  ,ncol = 3
-  ,dimnames = list(c("Co","Wa","Ca","Mo","NW"), c("HH", "FI", "BA"))
+# https://www.levyinstitute.org/pubs/wp_891.pdf
+act <- c("Co","Wa","Ca","Mo","NW")
+sct <- c("HH", "FI", "BA", "GV", "CB", "RW")
+tim <- 1:3
+
+bal <- array(
+  data = rep( 0, length(act) * length(sct) * length(tim))
+  ,dim = c(length(act), length(sct), length(tim))
+  ,dimnames = list(act, sct, tim)
   )
+bal[,,1] <- c(c(0,0,100,-80,-20,0,0,140,-50,-90,0,0,-240,130,110), rep(0, 15))
 bal
 
-txnc <- bal
-txnc[] <- c(1,0,-1,0,0,-1,0,1,0,0,0,0,0,0,0)
-txnc
 
-txnw <- bal
-txnw[] <- c(0,-1,1,0,0,0,1,-1,0,0,0,0,0,0,0)
-txnw
+# Posting template (Consumption)
+txnCo <- bal[,,1]
+txnCo[] <- 0
+txnCo["Co", c("HH","FI")] <- c(1,-1)
+txnCo["Ca", c("HH","FI")] <- c(-1,1)
+txnCo
 
-bal <- bal + txnc * 5 + txnw * 6
-bal
 
-sum(abs(colSums(bal)))
-sum(abs(rowSums(bal)))
+# Posting template (Wages)
+txnWa <- bal[,,1]
+txnWa[] <- 0 #c(0,-1,1,0,0,0,1,-1,0,0,0,0,0,0,0)
+txnWa["Wa", c("HH","FI")] <- c(-1,1)
+txnWa["Ca", c("HH","FI")] <- c(1,-1)
+txnWa
 
-bal[grepl("C", rownames(bal)),]
+# Post transactions
+bal[,,2] <- bal[,,1] + txnCo * 5 + txnWa * 6
+bal[,,2]
+
+sum(abs(colSums(bal[,,1])))
+sum(abs(rowSums(bal[,,1])))
+
+bal[,,1][grepl("C", rownames(bal[,,1])),]
