@@ -1744,144 +1744,127 @@ for (i in 1:15) {
 set.seed(123) # Ensuring reproducibility
 
 # Parameters
-NF <- 10000         # Number of firms
-c0 <- 0.5           # Baseline propensity to consume
-beta <- 2           # Intensity of choice parameter
-gamma <- 0.1        # Baseline price adjustment parameter
-R <- 1.3            # The ratio of hiring/firing propensities
-eta_0_plus <- 0.2   # Baseline firing propensity 
-eta_0_minus <- 0.2  # Baseline hiring propensity
-delta <- 0.02       # Fraction of dividends
-Theta <- 3          # Bankruptcy threshold / maximum leverage in the economy
-phi <- 0.1          # Frequency of firm revival
-f <- 0.5            # Share of bankruptcies supported by the firms
-alpha_c <- 4        # Reaction of consumption to inflation
-phi_pi <- 2.5       # Taylor-like rule parameter - quantifies the intensity of the policy
-alpha_Gamma <- 50   # Reaction of firms to interest rates
-Gamma_0 <- 0        # Baseline financial fragility sensitivity
-pi_star <- 0.04     # Taylor-like rule parameter -  target inflation level
-p_star <- 0.03      # Taylor-like rule parameter - baseline interest rate
-omega <- 0.2        # Exponentially moving average (ema) parameter
-g <- 1              # Indexation of wages to inflation
-tau_R <- 0.5
-tau_T <- 0.5
-t <- 10000
-teq <- 5000
-
-
-num_firms <- 10000         # Number of firms
+num_firms <- 1000         # Number of firms
 base_consume_prop <- 0.5   # Baseline propensity to consume
 choice_intensity <- 2      # Intensity of choice parameter
 price_adj_rate <- 0.1      # Baseline price adjustment parameter
 hire_fire_ratio <- 1.3     # The ratio of hiring/firing propensities
-fire_prop <- 0.2          # Baseline firing propensity 
-hire_prop <- 0.2          # Baseline hiring propensity
-div_frac <- 0.02          # Fraction of dividends
-max_leverage <- 3         # Bankruptcy threshold / maximum leverage in the economy
-firm_revive_rate <- 0.1   # Frequency of firm revival
+fire_prop <- 0.2           # Baseline firing propensity 
+hire_prop <- 0.2           # Baseline hiring propensity
+div_frac <- 0.02           # Fraction of dividends
+max_leverage <- 3          # Bankruptcy threshold / maximum leverage in the economy
+firm_revive_rate <- 0.1    # Frequency of firm revival
 bankr_support_share <- 0.5 # Share of bankruptcies supported by the firms
-consume_infl_react <- 4   # Reaction of consumption to inflation
-policy_intensity <- 2.5   # Taylor-like rule parameter - quantifies the intensity of the policy
-firm_rate_react <- 50     # Reaction of firms to interest rates
-fragility_sens <- 0       # Baseline financial fragility sensitivity
-target_infl <- 0.04       # Taylor-like rule parameter - target inflation level
-base_interest <- 0.03     # Taylor-like rule parameter - baseline interest rate
-ema_param <- 0.2          # Exponentially moving average (EMA) parameter
-wage_index <- 1           # Indexation of wages to inflation
+consume_infl_react <- 4    # Reaction of consumption to inflation
+policy_intensity <- 2.5    # Taylor-like rule parameter - quantifies the intensity of the policy
+firm_rate_react <- 50      # Reaction of firms to interest rates
+fragility_sens <- 0        # Baseline financial fragility sensitivity
+target_infl <- 0.04        # Taylor-like rule parameter - target inflation level
+base_interest <- 0.03      # Taylor-like rule parameter - baseline interest rate
+ema_param <- 0.2           # Exponentially moving average (EMA) parameter
+wage_index <- 1            # Indexation of wages to inflation
+tau_R <- 0.5               # Importance of past realised inflation on expected inflation
+tau_T <- 0.5               # Importance of target inflation on expected inflation
+
+total_time <- 10000        # Total simulation time
+equil_time <- 5000         # Equilibrium period
 
 
-Y0 <- 0.1 + 0.9 * runif(1)  # Firms production 
+# Firms' initial production
+initial_output <- 0.1 + 0.9 * runif(1)  
 
 # Firm attributes (empty vectors)
-p <- rep(NA, NF)    # Prices - attempted sale of Y
-Y <- rep(NA, NF)    # Quantity of perishable goods produced
-D <- rep(NA, NF)    # Demand for goods
-W <- rep(1, NF)     # Firm wages paid to employee
-E <- rep(NA, NF)    # Firm cash balance, if -ve then debt
-P <- rep(NA, NF)    # Firm profit
-a <- rep(1, NF)     # Active (1) / inactive (0) firm
+prices <- rep(NA, num_firms)      # Prices - attempted sale of output
+output <- rep(NA, num_firms)      # Quantity of perishable goods produced
+demand <- rep(NA, num_firms)      # Demand for goods
+wages  <- rep(1 , num_firms)      # Firm wages paid to employees
+cash_bal  <- rep(NA, num_firms)   # Firm cash balance, if negative then debt
+profit    <- rep(NA, num_firms)   # Firm profit
+is_active <- rep(1, num_firms)    # Active (1) / inactive (0) firm
 
-# Firm attributes (seed data) for each of NF firms
-for (i in 1:NF) {
-  p[i] <- 1 + 0.1 * (2 * runif(1) - 1)
-  Y[i] <- Y0 + 0.1 * (2 * runif(1) - 1)
-  D[i] <- Y0
-  W[i] <- 1
-  E[i] <- 2 * W[i] * Y[i] * runif(1)
-  P[i] <- p[i] * min(D[i], Y[i]) - W[i] * Y[i]
+# Firm attributes (seed data) for each firm
+for (i in 1:num_firms) {
+  prices[i]   <- 1 + 0.1 * (2 * runif(1) - 1)
+  output[i]   <- initial_output + 0.1 * (2 * runif(1) - 1)
+  demand[i]   <- initial_output
+  wages[i]    <- 1
+  cash_bal[i] <- 2 * wages[i] * output[i] * runif(1)
+  profit[i]   <- prices[i] * min(demand[i], output[i]) - wages[i] * output[i]
 }
 
-# Total household savings (number of firms less total cash)
-S <- NF - sum(E)
+# Total household savings (number of firms less total cash?)
+total_savings <- num_firms - sum(cash_bal)
 
-if (phi_pi == 0) {
-  pi_star <- 0
+if (policy_intensity == 0) {
+  target_infl <- 0
   tau_T <- 0
 }
 
 # Main Loop
-for (t in 1:T) {
-  epsilon <- sum(Y) / NF
-  u <- 1 - epsilon
-  p_mean <- sum(p * Y) / sum(Y)
-  w_mean <- sum(W * Y) / sum(Y)
-  u_star <- exp(W / w_mean) / sum(a * exp(W / w_mean)) / (NF * u)
+for (t in 1:total_time) {
+  avg_output_per_firm  <- sum(output) / num_firms
+  unemployment_rate    <- 1 - avg_output_per_firm
+  avg_price            <- sum(prices * output) / sum(output)
+  avg_wage             <- sum(wages * output) / sum(output)
+  unemployment_target  <- exp(wages / avg_wage) / sum(is_active * exp(wages / avg_wage)) / (num_firms * unemployment_rate)
   
   # Central Bank Policy
-  pi_b <- tau_T * pi_star
-  rho_0 <- phi_pi * (pi_star - pi_b)
-  Gamma <- max(alpha_Gamma * (rho_0 - pi_b), Gamma_0)
+  inflation_based_on_tax       <- tau_T * target_infl
+  inflation_policy_sensitivity <- policy_intensity * (target_infl - inflation_based_on_tax)
+  inflation_adjustment         <- max(firm_rate_react * (inflation_policy_sensitivity - inflation_based_on_tax), fragility_sens)
   
-  # Firms update prices, productions, and wages
-  for (i in 1:NF) {
-    if (a[i] == 1) {
-      if (E[i] > -Theta * W[i] * Y[i]) {
-        Phi <- -E[i] / (W[i] * Y[i])
-        eta_plus <- eta_0_plus * (1 - Gamma * Phi)
-        eta_minus <- eta_0_minus * (1 + Gamma * Phi)
+  # Firms update prices, production, and wages
+  for (i in 1:num_firms) {
+    if (is_active[i] == 1) {
+      if (cash_bal[i] > -max_leverage * wages[i] * output[i]) {
+        wage_adjustment_ratio   <- -cash_bal[i] / (wages[i] * output[i])
+        growth_adjustment_plus  <- hire_prop * (1 - inflation_adjustment * wage_adjustment_ratio)
+        growth_adjustment_minus <- fire_prop * (1 + inflation_adjustment * wage_adjustment_ratio)
         
-        if (Y[i] < D[i]) {
-          if (P[i] > 0) {
-            W[i] <- W[i] * (1 + gamma * (1 - Gamma * Phi) * runif(1))
-            W[i] <- min(W[i], (P[i] * min(D[i], Y[i])) / Y[i])
+        if (output[i] < demand[i]) {
+          if (profit[i] > 0) {
+            wages[i] <- wages[i] * (1 + price_adj_rate * (1 - inflation_adjustment * wage_adjustment_ratio) * runif(1))
+            wages[i] <- min(wages[i], (profit[i] * min(demand[i], output[i])) / output[i])
           }
-          Y[i] <- Y[i] + min(eta_plus * (D[i] - Y[i]), u_star[i])
-          if (p[i] < p_mean) p[i] <- p[i] * (1 + gamma * runif(1))
+          output[i] <- output[i] + min(growth_adjustment_plus * (demand[i] - output[i]), unemployment_target[i])
+          if (prices[i] < avg_price) prices[i] <- prices[i] * (1 + price_adj_rate * runif(1))
         } else {
-          if (P[i] < 0) {
-            W[i] <- W[i] * (1 - gamma * (1 + Gamma * Phi) * runif(1))
+          if (profit[i] < 0) {
+            wages[i] <- wages[i] * (1 - price_adj_rate * (1 + inflation_adjustment * wage_adjustment_ratio) * runif(1))
           }
-          Y[i] <- max(0, Y[i] - eta_minus * (D[i] - Y[i]))
-          if (p[i] > p_mean) p[i] <- p[i] * (1 - gamma * runif(1))
+          output[i] <- max(0, output[i] - growth_adjustment_minus * (demand[i] - output[i]))
+          if (prices[i] > avg_price) prices[i] <- prices[i] * (1 - price_adj_rate * runif(1))
         }
-        p[i] <- p[i] * (1 + pi_b)
-        W[i] <- W[i] * (1 + g * pi_b)
-        W[i] <- max(W[i], 0)
+        prices[i] <- prices[i] * (1 + inflation_based_on_tax)
+        wages[i]  <- wages[i] * (1 + wage_index * inflation_based_on_tax)
+        wages[i]  <- max(wages[i], 0)
       } else {
-        a[i] <- 0
-        S <- S - E[i]
+        is_active[i] <- 0
+        total_savings <- total_savings - cash_bal[i]
       }
     }
   }
   
   # Update Unemployment
-  u <- 1 - sum(Y) / NF
-  p <- sum(p * Y) / sum(Y)
+  unemployment_rate <- 1 - sum(output) / num_firms
+  avg_price <- sum(prices * output) / sum(output)
   
   # Revivals
-  for (i in 1:NF) {
-    if (a[i] == 0 && runif(1) < phi) {
-      Y[i] <- u * runif(1)
-      a[i] <- 1
-      P[i] <- p
-      W[i] <- w_mean
-      E[i] <- W[i] * Y[i]
+  for (i in 1:num_firms) {
+    if (is_active[i] == 0 && runif(1) < firm_revive_rate) {
+      output[i] <- unemployment_rate * runif(1)
+      is_active[i] <- 1
+      profit[i] <- avg_price
+      wages[i] <- avg_wage
+      cash_bal[i] <- wages[i] * output[i]
     }
   }
 }
 
 print("Simulation Complete")
                    
+
+
 
 # Dummy SFC set-up
 # https://www.levyinstitute.org/pubs/wp_891.pdf
