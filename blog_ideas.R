@@ -1904,3 +1904,117 @@ sum(abs(colSums(bal[,,1])))
 sum(abs(rowSums(bal[,,1])))
 
 bal[,,1][grepl("C", rownames(bal[,,1])),]
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+#
+# Agent based model
+# https://uwol.github.io/docs/2015-06_CEF2015-322.pdf
+# 
+# --------------------------------------------------------------------------------------------------------------------------
+
+calculate_new_price <- function(offered_amount_in_last_period, offered_amount_in_penultimate_period,
+                              sold_amount_in_last_period, sold_amount_in_penultimate_period,
+                              price_in_last_period, price_in_penultimate_period) {
+  
+  # Nothing sold?
+  if (offered_amount_in_last_period > 0 & sold_amount_in_last_period <= 0) {
+    return(calculate_decreased_price_explicit(price_in_last_period, price_in_penultimate_period))
+  }
+  
+  # Everything sold?
+  if (offered_amount_in_last_period > 0 & sold_amount_in_last_period == offered_amount_in_last_period) {
+    return(calculate_raised_price_explicit(price_in_last_period, price_in_penultimate_period))
+  }
+  
+  # Sold less?
+  if (offered_amount_in_last_period > 0 & sold_amount_in_penultimate_period > 0 &
+      sold_amount_in_last_period < sold_amount_in_penultimate_period &
+      offered_amount_in_last_period >= sold_amount_in_penultimate_period) {
+    return(calculate_decreased_price_explicit(price_in_last_period, price_in_penultimate_period))
+  }
+  
+  # Sold more?
+  if (offered_amount_in_last_period > 0 & sold_amount_in_penultimate_period > 0 &
+      sold_amount_in_last_period > sold_amount_in_penultimate_period &
+      offered_amount_in_penultimate_period >= sold_amount_in_last_period) {
+    return(calculate_raised_price_explicit(price_in_last_period, price_in_penultimate_period))
+  }
+  
+  # Implicit pricing pressure
+  return(calculate_raised_price_implicit(price_in_last_period))
+}
+
+calculate_decreased_price_explicit <- function(price_in_last_period, price_in_penultimate_period) {
+  price_factor <- calculate_price_decreasing_factor(price_in_last_period, price_in_penultimate_period)
+  return(price_in_last_period / (1 + price_factor))
+}
+
+calculate_raised_price_explicit <- function(price_in_last_period, price_in_penultimate_period) {
+  price_factor <- calculate_price_raising_factor(price_in_last_period, price_in_penultimate_period)
+  return(price_in_last_period * (1 + price_factor))
+}
+
+calculate_price_decreasing_factor <- function(price_in_last_period, price_in_penultimate_period) {
+  if (price_in_last_period < price_in_penultimate_period) {
+    return(min(max_price_factor, price_factor * price_factor_change))
+  }
+  if (price_in_last_period > price_in_penultimate_period) {
+    return(price_factor / price_factor_change)
+  }
+}
+
+calculate_price_raising_factor <- function(price_in_last_period, price_in_penultimate_period) {
+  if (price_in_last_period > price_in_penultimate_period) {
+    return(min(max_price_factor, price_factor * price_factor_change))
+  }
+  if (price_in_last_period < price_in_penultimate_period) {
+    return(price_factor / price_factor_change)
+  }
+}
+
+calculate_output_maximizing_inputs_iterative <- function(input_types, price_functions_of_input_types, 
+                                                     budget, number_of_iterations,
+                                                     initialization_value, prices_are_nan,
+                                                     needs_all_input_factors_non_zero_for_partial_derivate) {
+  if (prices_are_nan & needs_all_input_factors_non_zero_for_partial_derivate) {
+    return(rep(0, length(input_types)))
+  }
+  
+  if (budget <= 0) {
+    return(rep(0, length(input_types)))
+  }
+  
+  bundle_of_inputs <- setNames(rep(initialization_value, length(input_types)), input_types)
+  budget_spent <- 0
+  budget_per_iteration <- budget / number_of_iterations
+  
+  while (TRUE) {
+    if (budget_spent + budget_per_iteration > budget) {
+      break
+    }
+    
+    optimal_input_type <- find_highest_partial_derivate_per_price(bundle_of_inputs, price_functions_of_input_types)
+    
+    if (is.null(optimal_input_type)) {
+      break
+    }
+    
+    price_function_of_optimal_input_type <- price_functions_of_input_types[[optimal_input_type]]
+    old_amount_of_optimal_input_type <- bundle_of_inputs[[optimal_input_type]]
+    marginal_price_of_optimal_input_type <- price_function_of_optimal_input_type$get_marginal_price(old_amount_of_optimal_input_type)
+    additional_amount_of_input_type <- min(
+      budget_per_iteration / marginal_price_of_optimal_input_type,
+      max(old_amount_of_optimal_input_type, initialization_value)
+    )
+    
+    bundle_of_inputs[[optimal_input_type]] <- bundle_of_inputs[[optimal_input_type]] + additional_amount_of_input_type
+    budget_spent <- budget_spent + marginal_price_of_optimal_input_type * additional_amount_of_input_type
+  }
+  
+  for (input_type in input_types) {
+    bundle_of_inputs[[input_type]] <- bundle_of_inputs[[input_type]] - initialization_value
+  }
+  
+  return(bundle_of_inputs)
+}
