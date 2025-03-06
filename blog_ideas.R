@@ -2018,3 +2018,53 @@ calculate_output_maximizing_inputs_iterative <- function(input_types, price_func
   
   return(bundle_of_inputs)
 }
+
+
+# --------------------------------------------------------------------------------------------------------------------------
+#
+# SFC model
+# https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2664125
+# 
+# --------------------------------------------------------------------------------------------------------------------------
+
+# Create the data frame
+df <- data.frame(
+  row.names = c("Deposits", "Loans", "Cons. Goods", "Cap. Goods", "Bonds", "Reserves", "Advances", "Net Worth"),
+  Households = c(80704.1, 0, 0, 0, 0, 0, 0, 80704.1),
+  Cons_Firms = c(25000, -52194.4, 2997.4, 53863.6, 0, 0, 0, 29666.6),
+  Cap_Firms = c(5000, -1298, 0, 500, 0, 0, 0, 4202),
+  Banks = c(-110704, 53492.5, 0, 0, 38273.5, 28564.6, 0, 9626.4),
+  Govt = c(0, 0, 0, 0, -66838.1, 0, 0, -66838.1),
+  Central_Bank = c(0, 0, 0, 0, 28564.6, -28564.6, 0, 0),
+  Total = c(0, 0, 2997.4, 54363.6, 0, 0, 0, 57361)
+)
+
+# Convert the data frame to a matrix
+mat <- as.matrix(df)
+
+# Print the matrix
+print(mat)
+
+
+# Create the data frame
+df1 <- data.frame(
+  row.names = c("Consumption", "Wages", "Dole", "CG on inventories", "Investments", "Capital Amortization", 
+                "Taxes", "Dep. Interest", "Bonds Interest", "Loans Interest", "Advances Interest", "Profits", 
+                "CB profits", "Deposits", "Advances", "Reserves", "Gov. Bonds", "Loans"),
+  households_CA = c(-32971.4, 36800, 1280, 0, 0, 0, -7084.7, 200.3, 0, 0, 0, 2367.6, 0, -600.8, 0, 0, 0, 0),
+  households_KA = c(32971.4, -25000, 0, 22.3, 0, -4974, -484.8, 62, 0, -388.5, 0, -2208.4, 0, 0, 0, 0, 0, 0),
+  cons_firms_CA = c(0, 0, 0, -22.3, -5375, 4974, 0, 0, 0, 0, 0, 220.8, 0, -186.1, 0, 0, 0, 388.5),
+  cons_firms_KA = c(0, -5000, 0, 3.7, 5375, 0, -68.7, 12.4, 0, -9.7, 0, -312.8, 0, 0, 0, 0, 0, 0),
+  cap_firms_CA = c(0, 0, 0, -3.7, 0, 0, 0, 0, 0, 0, 0, 31.3, 0, -37.2, 0, 0, 0, 9.7),
+  cap_firms_KA = c(0, 0, 0, 0, 0, 0, -39.3, -274.7, 0, 398.2, 0, -179.1, 0, 0, 0, 0, 0, 0),
+  banks_CA = c(0, 0, 0, 0, 0, 0, 0, 0, 95, 0, 0, 71.7, 0, 824.1, 0, -212.6, -284.9, -398.2),
+  banks_KA = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 497.6, 0),
+  govt = c(0, -6800, -1280, 0, 0, 0, 7677.4, 0, -165.9, 0, 0, 0, 70.9, 0, 0, 0, 0, 0),
+  central_bank = c(0, 0, 0, 0, 0, 0, 0, 0, 70.9, 0, 0, 0, -70.9, 0, 0, 212.6, -212.6, 0)
+)
+
+# Convert the data frame to a matrix
+mat1 <- as.matrix(df1)
+
+# Print the matrix
+print(mat1)
