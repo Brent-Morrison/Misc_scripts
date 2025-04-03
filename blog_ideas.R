@@ -623,7 +623,10 @@ d <- tableGrob(kdist)
 
 # https://patchwork.data-imaginist.com/articles/guides/assembly.html
 grid.arrange(c, n, d, ncol=3, widths=c(3,1,1))
-
+# https://cran.r-project.org/web/packages/egg/vignettes/Ecosystem.html
+lay <- rbind(c(1,NA,2),
+             c(1,NA,3))
+grid.arrange(c, n, d, ncol=3, widths=c(3,0.5,1), layout_matrix = lay)
 
 
 
