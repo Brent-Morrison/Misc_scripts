@@ -11,3 +11,5 @@ A staging area for random bits and pieces...
 |[Mipex (migrant integration)](https://www.mipex.eu/download-pdf)|
 |[Australian social cohesion (Scanlon Institute)](https://scanloninstitute.org.au/mapping-social-cohesion-2023/)|
 |[Australian Life Tables](https://aga.gov.au/publications/life-tables/australian-life-tables-2020-22)|
+|[Economic Complexity Index](https://oec.world/en/data-availability)|
+|[Global Data Lab](https://globaldatalab.org/)|
