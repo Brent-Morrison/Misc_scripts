@@ -1,84 +1,84 @@
 vic_lga,rac,metro_region,ind_pop_2016,tot_pop_2016
-Alpine,Hume,na,,
-Ararat,Grampians,na,,
+Colac-Otway,Barwon,na,254,20972
+Corangamite,Barwon,na,151,16051
+Glenelg,Barwon,na,476,19557
+Greater Geelong,Barwon,na,2409,233429
+Moyne,Barwon,na,191,16495
+Queenscliffe,Barwon,na,7,2853
+Southern Grampians,Barwon,na,244,15944
+Surf Coast,Barwon,na,188,29397
+Warrnambool,Barwon,na,555,33655
+Bass Coast,Gippsland,na,303,32804
+Baw Baw,Gippsland,na,484,48479
+East Gippsland,Gippsland,na,1288,45040
+Latrobe,Gippsland,na,1184,73257
+South Gippsland,Gippsland,na,274,28703
+Wellington,Gippsland,na,640,42983
+Ararat,Grampians,na,175,11600
 Ballarat,Grampians,na,1470,101686
-Banyule,Metro,North & West,,
-Bass Coast,Gippsland,na,,
-Baw Baw,Gippsland,na,,
+Golden Plains,Grampians,na,204,21688
+Hepburn,Grampians,na,150,15330
+Hindmarsh,Grampians,na,82,5271
+Horsham,Grampians,na,297,19642
+Moorabool,Grampians,na,368,31818
+Northern Grampians,Grampians,na,366,11439
+Pyrenees,Grampians,na,135,7238
+West Wimmera,Grampians,na,34,3903
+Yarriambiack,Grampians,na,81,6674
+Alpine,Hume,na,104,12337
+Benalla,Hume,na,220,13861
+Greater Shepparton,Hume,na,2186,63837
+Indigo,Hume,na,204,16952
+Mansfield,Hume,na,63,8584
+Mitchell,Hume,na,650,40918
+Moira,Hume,na,500,29112
+Murrindindi,Hume,na,183,13732
+Strathbogie,Hume,na,113,10724
+Towong,Hume,na,87,5985
+Wangaratta,Hume,na,377,28310
+Wodonga,Hume,na,975,39351
+Buloke,Loddon Malley,na,67,6201
+Campaspe,Loddon Malley,na,874,37061
+Central Goldfields,Loddon Malley,na,190,12995
+Gannawarra,Loddon Malley,na,207,10549
+Greater Bendigo,Loddon Malley,na,1846,110477
+Loddon,Loddon Malley,na,119,7516
+Macedon Ranges,Loddon Malley,na,297,46100
+Mildura,Loddon Malley,na,2055,53878
+Mount Alexander,Loddon Malley,na,209,18761
+Swan Hill,Loddon Malley,na,832,20584
+Banyule,Metro,North & West,703,121865
 Bayside,Metro,Southern,,
-Benalla,Hume,na,,
 Boroondara,Metro,Eastern,,
-Brimbank,Metro,North & West,,
-Buloke,Loddon Malley,na,,
-Campaspe,Loddon Malley,na,,
+Brimbank,Metro,North & West,815,194319
 Cardinia,Metro,Southern,,
 Casey,Metro,Southern,,
-Central Goldfields,Loddon Malley,na,190,12995
-Colac-Otway,Barwon,na,254,20972
-Corangamite,Barwon,na,,
-Darebin,Metro,North & West,,
-East Gippsland,Gippsland,na,,
+Darebin,Metro,North & West,1162,146719
 Frankston,Metro,Southern,,
-Gannawarra,Loddon Malley,na,,
 Glen Eira,Metro,Southern,,
-Glenelg,Barwon,na,,
-Golden Plains,Grampians,na,,
-Greater Bendigo,Loddon Malley,na,1846,110477
 Greater Dandenong,Metro,Southern,,
-Greater Geelong,Barwon,na,2409,233429
-Greater Shepparton,Hume,na,2186,63837
-Hepburn,Grampians,na,,
-Hindmarsh,Grampians,na,,
-Hobsons Bay,Metro,North & West,,
-Horsham,Grampians,na,297,19642
-Hume,Metro,North & West,,
-Indigo,Hume,na,,
+Hobsons Bay,Metro,North & West,488,88778
+Hume,Metro,North & West,1461,197376
 Kingston,Metro,Southern,,
 Knox,Metro,Eastern,,
-Latrobe,Gippsland,na,1184,73257
-Loddon,Loddon Malley,na,,
-Macedon Ranges,Loddon Malley,na,,
 Manningham,Metro,Eastern,,
-Mansfield,Hume,na,,
-Maribyrnong,Metro,North & West,,
+Maribyrnong,Metro,North & West,429,82288
 Maroondah,Metro,Eastern,,
 Melbourne,Metro,Inner,,
-Melton,Metro,North & West,,
-Merri-bek,Metro,North & West,,
-Mildura,Loddon Malley,na,2055,53878
-Mitchell,Hume,na,,
-Moira,Hume,na,,
+Melton,Metro,North & West,1286,135443
+Merri-bek,Metro,North & West,850,222625
 Monash,Metro,Eastern,,
-Moonee Valley,Metro,North & West,,
-Moorabool,Grampians,na,,
-Moreland,Metro,North & West,,
+Moonee Valley,Metro,North & West,430,116671
+Moreland,Metro,North & West,815,162558
 Mornington Peninsula,Metro,Southern,,
-Mount Alexander,Loddon Malley,na,,
-Moyne,Barwon,na,,
-Murrindindi,Hume,na,,
-Nillumbik,Metro,North & West,,
-Northern Grampians,Grampians,na,,
+Nillumbik,Metro,North & West,236,61273
 Port Phillip,Metro,Inner,,
-Pyrenees,Grampians,na,,
-Queenscliffe,Barwon,na,,
-South Gippsland,Gippsland,na,,
-Southern Grampians,Barwon,na,,
 Stonnington,Metro,Southern,,
-Strathbogie,Hume,na,,
-Surf Coast,Barwon,na,,
-Swan Hill,Loddon Malley,na,,
-Towong,Hume,na,,
-Wangaratta,Hume,na,377,28310
-Warrnambool,Barwon,na,555,33655
-Wellington,Gippsland,na,,
-West Wimmera,Grampians,na,,
 Whitehorse,Metro,Eastern,,
-Whittlesea,Metro,North & West,,
-Wodonga,Hume,na,975,39351
-Wyndham,Metro,North & West,,
+Whittlesea,Metro,North & West,1639,197491
+Wyndham,Metro,North & West,1735,217122
 Yarra,Metro,Inner,,
-Yarra Ranges,Metro,Eastern,1355,149537
-Yarriambiack,Grampians,na,,
+Yarra Ranges,Metro,Eastern,,
 Barwon,rac,Country,4477,388353
 Gippsland,rac,Country,4171,271266
 Grampians,rac,Country,3165,236746
@@ -87,3 +87,4 @@ Loddon Malley,rac,Country,6711,324124
 North & West,rac,Metro,12049,1944528
 Eastern,rac,Metro,3979,1042211
 Southern,rac,Metro,7275,1428668
+Total,na,na,47788,5926624

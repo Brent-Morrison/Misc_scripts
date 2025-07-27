@@ -8,13 +8,18 @@ library(readxl)
 
 # Population data
 # https://www.vic.gov.au/sites/default/files/2019-08/Full-Report-Population-Diversity-in-LGAs-2016-Census-Web-version-30May18.PDF
+# RAC : Regional Advisory Council
 popn_data <- read.csv("vic_lga.csv")
 
 
 
 # Crime data
+# https://www.crimestatistics.vic.gov.au/crime-statistics/latest-aboriginal-crime-data
+# https://files.crimestatistics.vic.gov.au/2025-06/Indigenous_Data_Tables_LGA_Family_Incidents_Visualisation_Year_Ending_March_2025.xlsx
+# https://files.crimestatistics.vic.gov.au/2025-06/Data_Tables_LGA_Family_Incidents_Year_Ending_March_2025.xlsx
+
 if (file.exists("crimestatistics_vic.csv")) {
-  crimestatistics_vic <- read.csv(crimestatistics_vic, "crimestatistics_vic.csv")
+  crimestatistics_vic <- read.csv("crimestatistics_vic.csv")
 } else {
   url <- "https://files.crimestatistics.vic.gov.au/2025-06/Indigenous_Data_Tables_LGA_Alleged_Offenders_Visualisation_Year_Ending_March_2025.xlsx"
   temp <- tempfile()
@@ -24,16 +29,32 @@ if (file.exists("crimestatistics_vic.csv")) {
   write.csv(crimestatistics_vic, "crimestatistics_vic.csv")
 }
 
+# 2016 crime by status
 crime_2016 <- crimestatistics_vic %>% 
   filter(Year == 2016) %>% 
-  group_by(`Local Government Area`, `Indigenous Status`) %>% 
-  summarise(incidents = sum(`Alleged Offender Incidents`)) %>% 
-  pivot_wider(names_from = `Indigenous Status`, values_from = incidents)
+  group_by(Local.Government.Area, Indigenous.Status) %>% 
+  summarise(incidents = sum(Alleged.Offender.Incidents)) %>% 
+  pivot_wider(names_from = Indigenous.Status, values_from = incidents)
 
-z <- left_join(crime_2016, popn_data[popn_data$rac != "rac", ], by = join_by(`Local Government Area` == vic_lga)) %>% 
-  mutate(region = if_else(metro_region == "na", paste0("Country - ", rac), paste(rac, metro_region, sep = " - "))) %>% 
-  group_by(region) %>% 
-  summarise(atsi = sum(`Aboriginal and/or Torres Strait Islander`, na.rm = T), ni = sum(`Non-Indigenous`, na.rm = T))
+# Join population and crime data by Local Government Area
+crime_popn_2016 <- left_join(crime_2016, popn_data[popn_data$rac != "rac", ], by = join_by(Local.Government.Area == vic_lga)) %>% 
+  mutate(
+    region = if_else(metro_region == "na", paste0("Country - ", rac), paste(rac, metro_region, sep = " - ")),
+    lga    = if_else(metro_region == "na", paste0("Country - ", Local.Government.Area), region)
+    ) %>% 
+  group_by(lga) %>% 
+  summarise(
+    atsi_off = sum(`Aboriginal and/or Torres Strait Islander`, na.rm = T), 
+    ni_off   = sum(`Non-Indigenous`, na.rm = T),
+    atsi_pop = sum(ind_pop_2016, na.rm = T),
+    ni_pop   = sum(tot_pop_2016, na.rm = T) - sum(ind_pop_2016, na.rm = T)
+    ) %>% 
+  ungroup() %>% 
+  mutate(
+    atsi_off_rate = round(atsi_off / ni_off * 100, 1),
+    ni_off_rate = round(ni_off / ni_pop * 100, 1)
+    )
+
 
 # https://www.abs.gov.au/statistics/standards/australian-statistical-geography-standard-asgs-edition-3/jul2021-jun2026/access-and-downloads/digital-boundary-files
 lga <- st_read("data/LGA_2024_AUST_GDA2020.shp")
