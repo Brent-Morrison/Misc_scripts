@@ -13,3 +13,7 @@ A staging area for random bits and pieces...
 |[Australian Life Tables](https://aga.gov.au/publications/life-tables/australian-life-tables-2020-22)|
 |[Economic Complexity Index](https://oec.world/en/data-availability)|
 |[Global Data Lab](https://globaldatalab.org/)|
+|[Index of Economic Freedom](https://www.heritage.org/index/pages/all-country-scores)|
+|[Integrated Public Use Microdata Series (IPUMS)](https://international.ipums.org/international/)|
+|[Open Electricity](https://openelectricity.org.au/)|
+|[Ember - Monthly Electricity Data](https://ember-energy.org/data/monthly-electricity-data/)|
