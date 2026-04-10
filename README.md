@@ -17,3 +17,19 @@ A staging area for random bits and pieces...
 |[Integrated Public Use Microdata Series (IPUMS)](https://international.ipums.org/international/)|
 |[Open Electricity](https://openelectricity.org.au/)|
 |[Ember - Monthly Electricity Data](https://ember-energy.org/data/monthly-electricity-data/)|
+|[Parties, Presidents, Elections, and Governments](https://ppeg.wzb.eu/)|
+|[Corruption Perceptions Index](https://www.transparency.org/en/cpi/2024)|
+|[Global Terrorism Database](https://www.start.umd.edu/data-tools/GTD)|
+|[Historical index of ethnic fractionalisation](https://cadmus.eui.eu/entities/publication/eb27e2eb-d110-557a-80d5-be537cb8318c)|
+|[Legatim Prosperity Index](https://index.prosperity.com/rankings)|
+|[Legatim Prosperity Index1](https://composite-indicators.jrc.ec.europa.eu/explorer/indices/lpi/legatum-prosperity-index)|
+|[Database on Suicide Attacks](https://cpost.uchicago.edu/research/suicide_attacks/database_on_suicide_attacks/)|
+|[UN data explorer](http://data.un.org/Explorer.aspx)|
+|[Pew religious composition](https://www.pewresearch.org/religion/feature/religious-composition-by-country-2010-2020/)|
+|[Traffic congestion data](https://www.kaggle.com/datasets/bwandowando/tomtom-traffic-data-55-countries-387-cities)|
+|[Liberal democracy index](https://v-dem.net/data/the-v-dem-dataset/) |
+|[Housing stock](https://github.com/jgleeson/PublicHouse) |
+|[Housing construction](https://www.sebastiankohl.com/data) |
+|[World Happiness Index](https://www.worldhappiness.report/data-sharing/) |
+|[Migration flows](https://figshare.com/collections/Bilateral_international_migration_flow_estimates_for_200_countries/4470464) | 
+|[AEC Transparency Website](https://transparency.aec.gov.au/Download) |  

@@ -1,15 +1,25 @@
 library(igraph)
 library(ggplot2)
 
-start_node <- c(1,1,2,2,4,5,3,6,7)
-end_node <- c(2,3,4,5,6,6,7,8,8)
-drtn <- c(5,2,6,12,10,9,5,9,1)
-#drtn <- c(5,2,6,12,10,9,5,9,38)
+# References 
+# https://ocw.mit.edu/courses/esd-36-system-project-management-fall-2012/pages/lecture-notes/
+# https://www.pmi.org/learning/library/critical-path-method-calculations-scheduling-8040
+# Nodes as tasks / Activity on node (AON) representation
+
+start_node <- c(0,0,1,1,3,4,2,5,6)
+end_node <- c(1,2,3,4,5,5,6,7,7)
+drtn <- c(5,2,6,12,10,10,5,5,5)
+cost <- c(10,6,8,7,3,3,2,9,9)
+
+# https://www.youtube.com/watch?v=4oDLMs11Exs&t=2s
+start_node <- c(0,1,1,2,3,3,4,5,6,7)
+end_node <- c(1,2,3,4,5,6,7,7,8,8)
+drtn <- c(3,4,2,5,1,2,4,4,3,3)
 cost <- c(10,6,8,7,3,3,2,9,9)
 
 # Monte carlo data
-sapply(cost, rnorm, n = 5, sd = 0.2) 
-lapply(cost, rnorm, n = 5, sd = 0.2)
+#sapply(cost, rnorm, n = 5, sd = 0.2) 
+#lapply(cost, rnorm, n = 5, sd = 0.2)
 
 m <- matrix(c(start_node, end_node, drtn, cost), ncol = 4)
 colnames(m) <- c("snode","enode","drtn","cost")
@@ -18,11 +28,18 @@ m
 cp <- function (m) {
   mtx <- cbind(m, matrix(rep(0 ,8 * nrow(m)), ncol = 8))
   colnames(mtx) <- c("snode","enode","drtn","cost","fwrd","bkwd","est","eft","lst","lft","slhd","sltl")
+  # est - earliest start time
+  # eft - earliest finish time
+  # lst - latest start time
+  # lft - latest finish time
+  # slhd - lst ??? est = the amount an activity's start can be delayed without delaying the project.
+  # sltl - lft - eft = the amount an activity's finish can slip without affecting the project completion
   
-  # Forward
+  
+  # Forward pass - calculate 
   for (i in 1:nrow(mtx)) {
     
-    if (mtx[i, "snode"] == 1) {
+    if (mtx[i, "snode"] == 0) {
       # No previous node, forward pass equals duration
       mtx[i, "fwrd"] <- mtx[i, "drtn"]
     } else {
@@ -70,27 +87,29 @@ cp <- function (m) {
   #write.csv(mtx, "temp0.csv")
   
   # Critical Path
-  crit_path <- mtx[which(mtx[, "est"] == mtx[, "lst"]), c("snode", "enode", "drtn")]
+  crit_path <- mtx[which(mtx[, "est"] == mtx[, "lst"]), ]             # c("snode", "enode", "drtn", "est", "lst")
   duration <- sum(mtx[which(mtx[, "est"] == mtx[, "lst"]), "drtn"])   # Duration
-  cost <- sum(aggregate(cost ~ enode, data = mtx, max)[, "cost"]) # Cost
+  cost <- sum(aggregate(cost ~ enode, data = mtx, max)[, "cost"])     # Cost
   
-  return(list(crit_path, duration, cost))
+  return(list(crit_path, duration, cost, mtx))
 }
 
 res <- cp(m)
-res[[1]]
+cpath <- res[[1]]
 res[[2]]
 res[[3]]
+res[[4]]
+cpath 
 
 
 # Critical Path
-mtx[, c("snode", "enode")]
-mtx[which(mtx[, "est"] == mtx[, "lst"]), c("snode", "enode", "drtn")]
+cpath[, c("snode", "enode")]
+cpath[which(cpath[, "est"] == cpath[, "lst"]), c("snode", "enode", "drtn")]
 
 # Plot gantt
-d <- data.frame(mtx[, c("est", "eft")])
-d$name <- as.factor(1:9)
-d$critical_path <- mtx[, "est"] == mtx[, "lst"]
+d <- data.frame(cpath[, c("est", "eft")])
+d$name <- as.factor(1:nrow(d))
+d$critical_path <- cpath[, "est"] == cpath[, "lst"]
 
 d1 <- d[d$critical_path == TRUE, ]
 d1$name <- as.numeric(as.character(d1$name))
@@ -107,9 +126,9 @@ ggplot(d, aes(x=est, xend=eft, y=name, yend=name, color=critical_path)) +
 
 
 # igraph
-g <- graph_from_edgelist(mtx[, c("snode", "enode")])
-E(g)$weight <- mtx[, "drtn"]
-E(g)$critical_path <- mtx[, "est"] == mtx[, "lst"]
+g <- graph_from_edgelist(cpath[, c("snode", "enode")])
+E(g)$weight <- cpath[, "drtn"]
+E(g)$critical_path <- cpath[, "est"] == cpath[, "lst"]
 
 plot(g, 
      layout = layout_with_fr,

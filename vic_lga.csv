@@ -48,37 +48,37 @@ Mildura,Loddon Malley,na,2055,53878
 Mount Alexander,Loddon Malley,na,209,18761
 Swan Hill,Loddon Malley,na,832,20584
 Banyule,Metro,North & West,703,121865
-Bayside,Metro,Southern,,
-Boroondara,Metro,Eastern,,
+Bayside,Metro,Southern,,97087
+Boroondara,Metro,Eastern,,167231
 Brimbank,Metro,North & West,815,194319
-Cardinia,Metro,Southern,,
-Casey,Metro,Southern,,
+Cardinia,Metro,Southern,,94128
+Casey,Metro,Southern,,299301
 Darebin,Metro,North & West,1162,146719
-Frankston,Metro,Southern,,
-Glen Eira,Metro,Southern,,
-Greater Dandenong,Metro,Southern,,
+Frankston,Metro,Southern,,134143
+Glen Eira,Metro,Southern,,140875
+Greater Dandenong,Metro,Southern,,152050
 Hobsons Bay,Metro,North & West,488,88778
 Hume,Metro,North & West,1461,197376
-Kingston,Metro,Southern,,
-Knox,Metro,Eastern,,
-Manningham,Metro,Eastern,,
+Kingston,Metro,Southern,,151389
+Knox,Metro,Eastern,,154110
+Manningham,Metro,Eastern,,116255
 Maribyrnong,Metro,North & West,429,82288
-Maroondah,Metro,Eastern,,
-Melbourne,Metro,Inner,,
+Maroondah,Metro,Eastern,,110376
+Melbourne,Metro,Inner,,135959
 Melton,Metro,North & West,1286,135443
-Merri-bek,Metro,North & West,850,222625
-Monash,Metro,Eastern,,
+Merri-bek,Metro,North & West,0,0
+Monash,Metro,Eastern,,182618
 Moonee Valley,Metro,North & West,430,116671
-Moreland,Metro,North & West,815,162558
-Mornington Peninsula,Metro,Southern,,
+Moreland-Merri-bek,Metro,North & West,815,162558
+Mornington Peninsula,Metro,Southern,,154999
 Nillumbik,Metro,North & West,236,61273
-Port Phillip,Metro,Inner,,
-Stonnington,Metro,Southern,,
-Whitehorse,Metro,Eastern,,
+Port Phillip,Metro,Inner,,100863
+Stonnington,Metro,Southern,,103832
+Whitehorse,Metro,Eastern,,162078
 Whittlesea,Metro,North & West,1639,197491
 Wyndham,Metro,North & West,1735,217122
-Yarra,Metro,Inner,,
-Yarra Ranges,Metro,Eastern,,
+Yarra,Metro,Inner,,86657
+Yarra Ranges,Metro,Eastern,,149537
 Barwon,rac,Country,4477,388353
 Gippsland,rac,Country,4171,271266
 Grampians,rac,Country,3165,236746
@@ -88,3 +88,7 @@ North & West,rac,Metro,12049,1944528
 Eastern,rac,Metro,3979,1042211
 Southern,rac,Metro,7275,1428668
 Total,na,na,47788,5926624
+,,,,
+,,,,5919124
+,,,,"5,926,624"
+,,,,"-7,500"
