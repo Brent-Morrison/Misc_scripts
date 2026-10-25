@@ -33,3 +33,7 @@ A staging area for random bits and pieces...
 |[World Happiness Index](https://www.worldhappiness.report/data-sharing/) |
 |[Migration flows](https://figshare.com/collections/Bilateral_international_migration_flow_estimates_for_200_countries/4470464) | 
 |[AEC Transparency Website](https://transparency.aec.gov.au/Download) |  
+|[Maddison Project Database](https://www.rug.nl/ggdc/historicaldevelopment/maddison/) |  
+|[US Energy Information Administration](https://www.eia.gov/international/data/world) |  
+|[Corporate Tax Transparency (Australia)](https://data.gov.au/data/dataset/corporate-transparency)  |
+|[Global Slavery Index](https://cdn.walkfree.org/content/uploads/2023/05/17114737/Global-Slavery-Index-2023.pdf)  |
